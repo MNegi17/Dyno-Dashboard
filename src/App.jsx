@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6'];
@@ -108,6 +108,7 @@ function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [insightType, setInsightType] = useState('revenue');
   const [activePage, setActivePage] = useState('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState('All');
@@ -674,6 +675,22 @@ function App() {
 
   const formatCurrency = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value);
   const formatNumber = (value) => new Intl.NumberFormat('en-IN').format(value);
+  
+  const formatShortCurrency = (value) => {
+    const val = Number(value) || 0;
+    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
+    if (val >= 100000) return `₹${(val / 100000).toFixed(1)} L`;
+    if (val >= 1000) return `₹${(val / 1000).toFixed(1)} K`;
+    return formatCurrency(val);
+  };
+
+  const formatShortNumber = (value) => {
+    const val = Number(value) || 0;
+    if (val >= 10000000) return `${(val / 10000000).toFixed(2)} Cr`;
+    if (val >= 100000) return `${(val / 100000).toFixed(1)} L`;
+    if (val >= 1000) return `${(val / 1000).toFixed(1)} K`;
+    return formatNumber(val);
+  };
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -808,42 +825,57 @@ function App() {
       <aside className="sidebar">
         <div className="sidebar-top">
           <div className="brand">
-            <Activity className="brand-icon" size={28} />
-            Dyno
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Activity className="brand-icon" size={28} />
+              Dyno
+            </div>
+            <button 
+              className="mobile-menu-btn" 
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            >
+              <Menu size={24} />
+            </button>
           </div>
-          <nav className="nav-menu">
-            <div className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => setActivePage('dashboard')}>
+          <nav className={`nav-menu ${isMobileMenuOpen ? 'open' : ''}`}>
+            <div className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => { setActivePage('dashboard'); setIsMobileMenuOpen(false); }}>
               <Home size={20} />
               <span>Dashboard</span>
             </div>
-            <div className={`nav-item ${activePage === 'trends' ? 'active' : ''}`} onClick={() => setActivePage('trends')}>
+            <div className={`nav-item ${activePage === 'trends' ? 'active' : ''}`} onClick={() => { setActivePage('trends'); setIsMobileMenuOpen(false); }}>
               <BarChart2 size={20} />
               <span>Trends</span>
             </div>
-            <div className={`nav-item ${activePage === 'insights' ? 'active' : ''}`} onClick={() => setActivePage('insights')}>
+            <div className={`nav-item ${activePage === 'insights' ? 'active' : ''}`} onClick={() => { setActivePage('insights'); setIsMobileMenuOpen(false); }}>
               <Star size={20} />
               <span>Insights</span>
             </div>
-            <div className={`nav-item ${activePage === 'growth' ? 'active' : ''}`} onClick={() => setActivePage('growth')}>
+            <div className={`nav-item ${activePage === 'growth' ? 'active' : ''}`} onClick={() => { setActivePage('growth'); setIsMobileMenuOpen(false); }}>
               <TrendingUp size={20} />
               <span>MoM Growth</span>
             </div>
-            <div className={`nav-item ${activePage === 'goals' ? 'active' : ''}`} onClick={() => setActivePage('goals')}>
+            <div className={`nav-item ${activePage === 'goals' ? 'active' : ''}`} onClick={() => { setActivePage('goals'); setIsMobileMenuOpen(false); }}>
               <Target size={20} />
               <span>Target & Goals</span>
             </div>
             {userRole === 'admin' && (
-              <div className={`nav-item ${activePage === 'raw_files' ? 'active' : ''}`} onClick={() => setActivePage('raw_files')}>
+              <div className={`nav-item ${activePage === 'raw_files' ? 'active' : ''}`} onClick={() => { setActivePage('raw_files'); setIsMobileMenuOpen(false); }}>
                 <FileText size={20} />
                 <span>Raw Files</span>
               </div>
             )}
+            
+            <div className="mobile-only-logout">
+              <button className="sidebar-logout" onClick={handleLogout} style={{ marginTop: '1rem' }}>
+                <LogOut size={16} />
+                <span>Logout ({userRole})</span>
+              </button>
+            </div>
           </nav>
         </div>
-        <div className="sidebar-bottom">
+        <div className="sidebar-bottom desktop-only-logout">
           <button className="sidebar-logout" onClick={handleLogout}>
             <LogOut size={16} />
-            Logout ({userRole})
+            <span>Logout ({userRole})</span>
           </button>
         </div>
       </aside>
@@ -1394,132 +1426,144 @@ function App() {
                 ) : goalMetrics ? (
                   <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                     {/* Revenue Goal */}
-                    <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem' }}>
+                    <div className="card metric-card goal-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>
-                      <h3 style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Revenue Target</h3>
+                      <h3 className="goal-title">Revenue Target</h3>
                       <Target size={24} color="var(--accent-color)" />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                         <div>
-                          <div style={{ fontSize: '2rem', fontWeight: 700 }}>{formatCurrency(goalMetrics.actual.revenue)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Achieved</div>
+                          <div className="goal-value desktop-only">{formatCurrency(goalMetrics.actual.revenue)}</div>
+                          <div className="goal-value mobile-only">{formatShortCurrency(goalMetrics.actual.revenue)}</div>
+                          <div className="goal-label">Achieved</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{formatCurrency(goalMetrics.target.revenue)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Goal</div>
+                          <div className="goal-target desktop-only">{formatCurrency(goalMetrics.target.revenue)}</div>
+                          <div className="goal-target mobile-only">{formatShortCurrency(goalMetrics.target.revenue)}</div>
+                          <div className="goal-label">Goal</div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginTop: '0.5rem' }}>
-                        <div style={{ height: '100%', width: `${Math.min((goalMetrics.actual.revenue / goalMetrics.target.revenue) * 100, 100)}%`, background: goalMetrics.actual.revenue >= goalMetrics.target.revenue ? '#10b981' : 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                      <div className="goal-progress-bg">
+                        <div className="goal-progress-bar" style={{ width: `${Math.min((goalMetrics.actual.revenue / goalMetrics.target.revenue) * 100, 100)}%`, background: goalMetrics.actual.revenue >= goalMetrics.target.revenue ? '#10b981' : 'var(--accent-color)' }}></div>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '0.25rem', color: goalMetrics.actual.revenue >= goalMetrics.target.revenue ? '#10b981' : '#f59e0b' }}>
+                      <div className="goal-footer" style={{ color: goalMetrics.actual.revenue >= goalMetrics.target.revenue ? '#10b981' : '#f59e0b' }}>
                         <span>{((goalMetrics.actual.revenue / goalMetrics.target.revenue) * 100).toFixed(1)}% Completed</span>
-                        <span>{goalMetrics.actual.revenue < goalMetrics.target.revenue ? `${formatCurrency(goalMetrics.target.revenue - goalMetrics.actual.revenue)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="desktop-only">{goalMetrics.actual.revenue < goalMetrics.target.revenue ? `${formatCurrency(goalMetrics.target.revenue - goalMetrics.actual.revenue)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="mobile-only">{goalMetrics.actual.revenue < goalMetrics.target.revenue ? `${formatShortCurrency(goalMetrics.target.revenue - goalMetrics.actual.revenue)} Left` : 'Exceeded!'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Units Goal */}
-                  <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem' }}>
+                  <div className="card metric-card goal-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>
-                      <h3 style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total Units Target</h3>
+                      <h3 className="goal-title">Total Units Target</h3>
                       <ShoppingBag size={24} color="var(--accent-color)" />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                         <div>
-                          <div style={{ fontSize: '2rem', fontWeight: 700 }}>{formatNumber(goalMetrics.actual.units)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Sold</div>
+                          <div className="goal-value desktop-only">{formatNumber(goalMetrics.actual.units)}</div>
+                          <div className="goal-value mobile-only">{formatShortNumber(goalMetrics.actual.units)}</div>
+                          <div className="goal-label">Sold</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{formatNumber(goalMetrics.target.units)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Goal</div>
+                          <div className="goal-target desktop-only">{formatNumber(goalMetrics.target.units)}</div>
+                          <div className="goal-target mobile-only">{formatShortNumber(goalMetrics.target.units)}</div>
+                          <div className="goal-label">Goal</div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginTop: '0.5rem' }}>
-                        <div style={{ height: '100%', width: `${Math.min((goalMetrics.actual.units / goalMetrics.target.units) * 100, 100)}%`, background: goalMetrics.actual.units >= goalMetrics.target.units ? '#10b981' : 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                      <div className="goal-progress-bg">
+                        <div className="goal-progress-bar" style={{ width: `${Math.min((goalMetrics.actual.units / goalMetrics.target.units) * 100, 100)}%`, background: goalMetrics.actual.units >= goalMetrics.target.units ? '#10b981' : 'var(--accent-color)' }}></div>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '0.25rem', color: goalMetrics.actual.units >= goalMetrics.target.units ? '#10b981' : '#f59e0b' }}>
+                      <div className="goal-footer" style={{ color: goalMetrics.actual.units >= goalMetrics.target.units ? '#10b981' : '#f59e0b' }}>
                         <span>{((goalMetrics.actual.units / goalMetrics.target.units) * 100).toFixed(1)}% Completed</span>
-                        <span>{goalMetrics.actual.units < goalMetrics.target.units ? `${formatNumber(goalMetrics.target.units - goalMetrics.actual.units)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="desktop-only">{goalMetrics.actual.units < goalMetrics.target.units ? `${formatNumber(goalMetrics.target.units - goalMetrics.actual.units)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="mobile-only">{goalMetrics.actual.units < goalMetrics.target.units ? `${formatShortNumber(goalMetrics.target.units - goalMetrics.actual.units)} Left` : 'Exceeded!'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Apparel Goal */}
-                  <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem' }}>
+                  <div className="card metric-card goal-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>
-                      <h3 style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Apparel Target (Units)</h3>
+                      <h3 className="goal-title">Apparel Target (Units)</h3>
                       <Layers size={24} color="var(--accent-color)" />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                         <div>
-                          <div style={{ fontSize: '2rem', fontWeight: 700 }}>{formatNumber(goalMetrics.actual.apparel)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Sold</div>
+                          <div className="goal-value desktop-only">{formatNumber(goalMetrics.actual.apparel)}</div>
+                          <div className="goal-value mobile-only">{formatShortNumber(goalMetrics.actual.apparel)}</div>
+                          <div className="goal-label">Sold</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{formatNumber(goalMetrics.target.apparel)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Goal</div>
+                          <div className="goal-target desktop-only">{formatNumber(goalMetrics.target.apparel)}</div>
+                          <div className="goal-target mobile-only">{formatShortNumber(goalMetrics.target.apparel)}</div>
+                          <div className="goal-label">Goal</div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginTop: '0.5rem' }}>
-                        <div style={{ height: '100%', width: `${Math.min((goalMetrics.actual.apparel / goalMetrics.target.apparel) * 100, 100)}%`, background: goalMetrics.actual.apparel >= goalMetrics.target.apparel ? '#10b981' : 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                      <div className="goal-progress-bg">
+                        <div className="goal-progress-bar" style={{ width: `${Math.min((goalMetrics.actual.apparel / goalMetrics.target.apparel) * 100, 100)}%`, background: goalMetrics.actual.apparel >= goalMetrics.target.apparel ? '#10b981' : 'var(--accent-color)' }}></div>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '0.25rem', color: goalMetrics.actual.apparel >= goalMetrics.target.apparel ? '#10b981' : '#f59e0b' }}>
+                      <div className="goal-footer" style={{ color: goalMetrics.actual.apparel >= goalMetrics.target.apparel ? '#10b981' : '#f59e0b' }}>
                         <span>{((goalMetrics.actual.apparel / goalMetrics.target.apparel) * 100).toFixed(1)}% Completed</span>
-                        <span>{goalMetrics.actual.apparel < goalMetrics.target.apparel ? `${formatNumber(goalMetrics.target.apparel - goalMetrics.actual.apparel)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="desktop-only">{goalMetrics.actual.apparel < goalMetrics.target.apparel ? `${formatNumber(goalMetrics.target.apparel - goalMetrics.actual.apparel)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="mobile-only">{goalMetrics.actual.apparel < goalMetrics.target.apparel ? `${formatShortNumber(goalMetrics.target.apparel - goalMetrics.actual.apparel)} Left` : 'Exceeded!'}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Footwear Goal */}
-                  <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem' }}>
+                  <div className="card metric-card goal-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>
-                      <h3 style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Footwear Target (Units)</h3>
+                      <h3 className="goal-title">Footwear Target (Units)</h3>
                       <ShoppingBag size={24} color="var(--accent-color)" />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                         <div>
-                          <div style={{ fontSize: '2rem', fontWeight: 700 }}>{formatNumber(goalMetrics.actual.footwear)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Sold</div>
+                          <div className="goal-value desktop-only">{formatNumber(goalMetrics.actual.footwear)}</div>
+                          <div className="goal-value mobile-only">{formatShortNumber(goalMetrics.actual.footwear)}</div>
+                          <div className="goal-label">Sold</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: '1.2rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{formatNumber(goalMetrics.target.footwear)}</div>
-                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Goal</div>
+                          <div className="goal-target desktop-only">{formatNumber(goalMetrics.target.footwear)}</div>
+                          <div className="goal-target mobile-only">{formatShortNumber(goalMetrics.target.footwear)}</div>
+                          <div className="goal-label">Goal</div>
                         </div>
                       </div>
-                      <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', marginTop: '0.5rem' }}>
-                        <div style={{ height: '100%', width: `${Math.min((goalMetrics.actual.footwear / goalMetrics.target.footwear) * 100, 100)}%`, background: goalMetrics.actual.footwear >= goalMetrics.target.footwear ? '#10b981' : 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                      <div className="goal-progress-bg">
+                        <div className="goal-progress-bar" style={{ width: `${Math.min((goalMetrics.actual.footwear / goalMetrics.target.footwear) * 100, 100)}%`, background: goalMetrics.actual.footwear >= goalMetrics.target.footwear ? '#10b981' : 'var(--accent-color)' }}></div>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginTop: '0.25rem', color: goalMetrics.actual.footwear >= goalMetrics.target.footwear ? '#10b981' : '#f59e0b' }}>
+                      <div className="goal-footer" style={{ color: goalMetrics.actual.footwear >= goalMetrics.target.footwear ? '#10b981' : '#f59e0b' }}>
                         <span>{((goalMetrics.actual.footwear / goalMetrics.target.footwear) * 100).toFixed(1)}% Completed</span>
-                        <span>{goalMetrics.actual.footwear < goalMetrics.target.footwear ? `${formatNumber(goalMetrics.target.footwear - goalMetrics.actual.footwear)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="desktop-only">{goalMetrics.actual.footwear < goalMetrics.target.footwear ? `${formatNumber(goalMetrics.target.footwear - goalMetrics.actual.footwear)} Left` : 'Goal Exceeded!'}</span>
+                        <span className="mobile-only">{goalMetrics.actual.footwear < goalMetrics.target.footwear ? `${formatShortNumber(goalMetrics.target.footwear - goalMetrics.actual.footwear)} Left` : 'Exceeded!'}</span>
                       </div>
                     </div>
                   </div>
                   
                   {/* ASP Comparison */}
-                  <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem', gridColumn: 'span 2' }}>
+                  <div className="card metric-card goal-card asp-card" style={{ gridColumn: 'span 2' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>
-                      <h3 style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>ASP (Average Selling Price) Performance</h3>
+                      <h3 className="goal-title">ASP Performance</h3>
                       <TrendingUp size={24} color="var(--accent-color)" />
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-around', width: '100%', alignItems: 'center' }}>
-                       <div style={{ textAlign: 'center' }}>
-                         <div style={{ fontSize: '2.5rem', fontWeight: 700, color: goalMetrics.actual.asp >= goalMetrics.target.asp ? '#10b981' : '#ef4444' }}>
+                    <div className="asp-comparison-container">
+                       <div className="asp-side">
+                         <div className="asp-value" style={{ color: goalMetrics.actual.asp >= goalMetrics.target.asp ? '#10b981' : '#ef4444' }}>
                            {formatCurrency(goalMetrics.actual.asp)}
                          </div>
-                         <div style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Actual ASP</div>
+                         <div className="goal-label">Actual ASP</div>
                        </div>
-                       <div style={{ fontSize: '1.5rem', color: 'var(--text-secondary)', fontWeight: 600 }}>VS</div>
-                       <div style={{ textAlign: 'center' }}>
-                         <div style={{ fontSize: '2.5rem', fontWeight: 700 }}>
+                       <div className="asp-vs">VS</div>
+                       <div className="asp-side">
+                         <div className="asp-value">
                            {formatCurrency(goalMetrics.target.asp)}
                          </div>
-                         <div style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>Target ASP</div>
+                         <div className="goal-label">Target ASP</div>
                        </div>
                     </div>
                   </div>
