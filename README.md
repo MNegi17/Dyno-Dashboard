@@ -74,7 +74,7 @@ Check out the live application here: **[https://dyno-dashboard.vercel.app](https
    ```
 
 ## 📄 License
-This project is for internal business analytics.
+by MNegi 17 only
 
 ---
-Built with ❤️ by Antigravity AI for MNegi17.
+Built with ❤️ by MNegi 17.
