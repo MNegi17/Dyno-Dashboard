@@ -1192,7 +1192,7 @@ function App() {
                   <div className="card-header">
                     <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <Search size={20} color="var(--accent-color)" />
-                      Search Product Analysis
+                      Search Product
                     </h3>
                   </div>
                   <div className="search-box-container">
@@ -1204,7 +1204,20 @@ function App() {
                       value={productSearch}
                       onChange={(e) => {
                         setProductSearch(e.target.value);
-                        if (e.target.value === '') setSelectedProduct(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && productSearch.trim()) {
+                          // Try exact match first, then case-insensitive, then partial
+                          const exactMatch = productList.find(p => p === productSearch);
+                          const caseMatch = productList.find(p => p.toLowerCase() === productSearch.toLowerCase());
+                          const partialMatch = productList.find(p => p.toLowerCase().includes(productSearch.toLowerCase()));
+                          
+                          const match = exactMatch || caseMatch || partialMatch;
+                          if (match) {
+                            setSelectedProduct(match);
+                            setProductSearch(match);
+                          }
+                        }
                       }}
                     />
                     {productSearch && !selectedProduct && (
