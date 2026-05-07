@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6'];
@@ -633,19 +633,33 @@ function App() {
 
   const productList = useMemo(() => {
     if (!data.length) return [];
+    
+    // Filter data by selected month and date first if applicable
+    const filteredForList = data.filter(row => {
+      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return false;
+      if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return false;
+      return true;
+    });
+
     const products = new Set();
-    data.forEach(row => {
+    filteredForList.forEach(row => {
       const p = row.item_color || row.itemcolor || row.barcode;
       if (p) products.add(p);
     });
     return Array.from(products).sort();
-  }, [data]);
+  }, [data, selectedMonth, selectedDate]);
 
   const productSizeData = useMemo(() => {
     if (!selectedProduct || !data.length) return null;
     
     const sizeMap = {};
+    let totalUnits = 0;
+
     data.forEach(row => {
+      // Apply Month and Date filters to the specific product data
+      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
+      if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
+
       const p = row.item_color || row.itemcolor || row.barcode;
       if (p === selectedProduct) {
         const size = row.item_type_size || row.itemtypesize || row.size || 'Unknown';
@@ -654,11 +668,19 @@ function App() {
         if (!sizeMap[size]) sizeMap[size] = { size, revenue: 0, units: 0 };
         sizeMap[size].revenue += val;
         sizeMap[size].units += 1;
+        totalUnits += 1;
       }
     });
     
-    return Object.values(sizeMap).sort((a, b) => b.revenue - a.revenue);
-  }, [selectedProduct, data]);
+    const sortedData = Object.values(sizeMap).sort((a, b) => b.revenue - a.revenue);
+    const topSize = sortedData.length > 0 ? sortedData.sort((a,b) => b.units - a.units)[0].size : 'N/A';
+
+    return {
+      sizes: Object.values(sizeMap).sort((a, b) => b.revenue - a.revenue),
+      totalUnits,
+      topSize
+    };
+  }, [selectedProduct, data, selectedMonth, selectedDate]);
 
   const goalMetrics = useMemo(() => {
     if (!data.length) return null;
@@ -1065,11 +1087,13 @@ function App() {
                 {activePage !== 'goals' && (
                   <>
                     <CustomSelect value={selectedDate} options={filterOptions.dates} onChange={setSelectedDate} placeholder="All Dates" />
-                    <CustomSelect value={selectedDivision} options={filterOptions.divisions} onChange={setSelectedDivision} placeholder="All Divisions" />
+                    {activePage !== 'product_level' && (
+                      <CustomSelect value={selectedDivision} options={filterOptions.divisions} onChange={setSelectedDivision} placeholder="All Divisions" />
+                    )}
                   </>
                 )}
                 
-                {activePage !== 'insights' && activePage !== 'goals' && (
+                {activePage !== 'insights' && activePage !== 'goals' && activePage !== 'product_level' && (
                   <>
                     <CustomSelect value={selectedChannel} options={filterOptions.channels} onChange={setSelectedChannel} placeholder="All Channels" />
                     <CustomSelect value={selectedCategory} options={filterOptions.categories} onChange={setSelectedCategory} placeholder="All Categories" />
@@ -1175,7 +1199,8 @@ function App() {
                     <input 
                       type="text" 
                       className="auth-input" 
-                      placeholder="Type to search product (Item Color)..."
+                      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+                      placeholder="Search Product"
                       value={productSearch}
                       onChange={(e) => {
                         setProductSearch(e.target.value);
@@ -1211,20 +1236,46 @@ function App() {
                 </div>
 
                 {selectedProduct && productSizeData && (
-                  <div className="card">
-                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="card" style={{ position: 'relative' }}>
+                    <button 
+                      onClick={() => { setSelectedProduct(null); setProductSearch(''); }}
+                      style={{ 
+                        position: 'absolute', 
+                        top: '1.5rem', 
+                        left: '1.5rem', 
+                        background: 'rgba(255,255,255,0.05)', 
+                        border: 'none', 
+                        color: 'var(--text-secondary)',
+                        borderRadius: '50%',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        zIndex: 10
+                      }}
+                      title="Clear Selection"
+                    >
+                      <X size={18} />
+                    </button>
+
+                    <div className="card-header" style={{ textAlign: 'center', paddingLeft: '3rem' }}>
                       <h3 className="card-title">Size Wise Performance: {selectedProduct}</h3>
-                      <button 
-                        className="sidebar-logout" 
-                        onClick={() => { setSelectedProduct(null); setProductSearch(''); }}
-                        style={{ padding: '4px 12px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)' }}
-                      >
-                        Clear Selection
-                      </button>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', marginTop: '1rem' }}>
+                        <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '0.5rem 1.5rem', borderRadius: 'var(--radius-sm)' }}>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Total Units: </span>
+                          <span style={{ fontWeight: 700, color: 'var(--accent-color)' }}>{formatNumber(productSizeData.totalUnits)}</span>
+                        </div>
+                        <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.5rem 1.5rem', borderRadius: 'var(--radius-sm)' }}>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Top Size: </span>
+                          <span style={{ fontWeight: 700, color: '#10b981' }}>{productSizeData.topSize}</span>
+                        </div>
+                      </div>
                     </div>
                     <div style={{ height: '400px', marginTop: '2rem' }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={productSizeData} layout="vertical" margin={{ left: 40, right: 40 }}>
+                        <BarChart data={productSizeData.sizes} layout="vertical" margin={{ left: 40, right: 40 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                           <XAxis type="number" hide />
                           <YAxis 
@@ -1240,7 +1291,7 @@ function App() {
                             cursor={{ fill: 'rgba(255,255,255,0.05)' }} 
                           />
                           <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={25}>
-                            {productSizeData.map((entry, index) => (
+                            {productSizeData.sizes.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Bar>
@@ -1249,7 +1300,7 @@ function App() {
                     </div>
                     <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
                        <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-                         {productSizeData.slice(0, 6).map((item, idx) => (
+                         {productSizeData.sizes.slice(0, 6).map((item, idx) => (
                            <div key={idx} style={{ textAlign: 'center' }}>
                              <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Size {item.size}</div>
                              <div style={{ fontWeight: 700, fontSize: '1.1rem', margin: '4px 0' }}>{formatCurrency(item.revenue)}</div>
