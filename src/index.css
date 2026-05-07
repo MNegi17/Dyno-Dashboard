@@ -1192,3 +1192,45 @@ tr:hover td {
     color: var(--text-secondary);
   }
 }
+
+/* Product Level Search Suggestions */
+.search-box-container {
+  position: relative;
+  margin-top: 1rem;
+}
+
+.search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #1e293b;
+  border: 1px solid var(--card-border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  z-index: 100;
+  max-height: 300px;
+  overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+}
+
+.suggestion-item {
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  color: var(--text-primary);
+}
+
+.suggestion-item:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-color);
+  padding-left: 1.25rem;
+}
+
+.suggestion-item:last-child {
+  border-bottom: none;
+}

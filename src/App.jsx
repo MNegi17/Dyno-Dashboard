@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6'];
@@ -109,6 +109,8 @@ function App() {
   const [insightType, setInsightType] = useState('revenue');
   const [activePage, setActivePage] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState('All');
@@ -629,6 +631,35 @@ function App() {
     };
   }, [data, selectedMonth]);
 
+  const productList = useMemo(() => {
+    if (!data.length) return [];
+    const products = new Set();
+    data.forEach(row => {
+      const p = row.item_color || row.itemcolor || row.barcode;
+      if (p) products.add(p);
+    });
+    return Array.from(products).sort();
+  }, [data]);
+
+  const productSizeData = useMemo(() => {
+    if (!selectedProduct || !data.length) return null;
+    
+    const sizeMap = {};
+    data.forEach(row => {
+      const p = row.item_color || row.itemcolor || row.barcode;
+      if (p === selectedProduct) {
+        const size = row.item_type_size || row.itemtypesize || row.size || 'Unknown';
+        const val = row.priceVal;
+        
+        if (!sizeMap[size]) sizeMap[size] = { size, revenue: 0, units: 0 };
+        sizeMap[size].revenue += val;
+        sizeMap[size].units += 1;
+      }
+    });
+    
+    return Object.values(sizeMap).sort((a, b) => b.revenue - a.revenue);
+  }, [selectedProduct, data]);
+
   const goalMetrics = useMemo(() => {
     if (!data.length) return null;
 
@@ -849,6 +880,10 @@ function App() {
               <Star size={20} />
               <span>Insights</span>
             </div>
+            <div className={`nav-item ${activePage === 'product_level' ? 'active' : ''}`} onClick={() => { setActivePage('product_level'); setIsMobileMenuOpen(false); }}>
+              <Layers size={20} />
+              <span>Product Level</span>
+            </div>
             <div className={`nav-item ${activePage === 'growth' ? 'active' : ''}`} onClick={() => { setActivePage('growth'); setIsMobileMenuOpen(false); }}>
               <TrendingUp size={20} />
               <span>MoM Growth</span>
@@ -889,6 +924,7 @@ function App() {
               {activePage === 'dashboard' && 'Sales Overview'}
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
+              {activePage === 'product_level' && 'Product Level Analysis'}
               {activePage === 'growth' && 'Month-over-Month Growth'}
               {activePage === 'goals' && 'Target & Goal Tracking'}
             </h1>
@@ -1123,6 +1159,107 @@ function App() {
                     ))}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activePage === 'product_level' && (
+              <div className="product-search-section">
+                <div className="card" style={{ marginBottom: '2rem' }}>
+                  <div className="card-header">
+                    <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Search size={20} color="var(--accent-color)" />
+                      Search Product Analysis
+                    </h3>
+                  </div>
+                  <div className="search-box-container">
+                    <input 
+                      type="text" 
+                      className="auth-input" 
+                      placeholder="Type to search product (Item Color)..."
+                      value={productSearch}
+                      onChange={(e) => {
+                        setProductSearch(e.target.value);
+                        if (e.target.value === '') setSelectedProduct(null);
+                      }}
+                    />
+                    {productSearch && !selectedProduct && (
+                      <div className="search-suggestions">
+                        {productList
+                          .filter(p => p.toLowerCase().includes(productSearch.toLowerCase()))
+                          .slice(0, 15)
+                          .map(p => (
+                            <div 
+                              key={p} 
+                              className="suggestion-item"
+                              onClick={() => {
+                                setSelectedProduct(p);
+                                setProductSearch(p);
+                              }}
+                            >
+                              <Search size={14} style={{ opacity: 0.5 }} />
+                              {p}
+                            </div>
+                          ))}
+                        {productList.filter(p => p.toLowerCase().includes(productSearch.toLowerCase())).length === 0 && (
+                          <div className="suggestion-item" style={{ color: 'var(--text-secondary)', cursor: 'default' }}>
+                            No products found matching "{productSearch}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedProduct && productSizeData && (
+                  <div className="card">
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 className="card-title">Size Wise Performance: {selectedProduct}</h3>
+                      <button 
+                        className="sidebar-logout" 
+                        onClick={() => { setSelectedProduct(null); setProductSearch(''); }}
+                        style={{ padding: '4px 12px', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)' }}
+                      >
+                        Clear Selection
+                      </button>
+                    </div>
+                    <div style={{ height: '400px', marginTop: '2rem' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={productSizeData} layout="vertical" margin={{ left: 40, right: 40 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                          <XAxis type="number" hide />
+                          <YAxis 
+                            dataKey="size" 
+                            type="category" 
+                            stroke="var(--text-secondary)" 
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <Tooltip 
+                            content={<CustomTooltip />} 
+                            cursor={{ fill: 'rgba(255,255,255,0.05)' }} 
+                          />
+                          <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={25}>
+                            {productSizeData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
+                       <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                         {productSizeData.slice(0, 6).map((item, idx) => (
+                           <div key={idx} style={{ textAlign: 'center' }}>
+                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Size {item.size}</div>
+                             <div style={{ fontWeight: 700, fontSize: '1.1rem', margin: '4px 0' }}>{formatCurrency(item.revenue)}</div>
+                             <div style={{ color: 'var(--accent-color)', fontSize: '0.85rem' }}>{item.units} Units</div>
+                           </div>
+                         ))}
+                       </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
