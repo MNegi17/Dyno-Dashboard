@@ -690,39 +690,6 @@ function App() {
     };
   }, [selectedProduct, data, selectedMonth, selectedDate, selectedChannel]);
 
-  const productOverviewData = useMemo(() => {
-    if (!data.length || activePage !== 'product_level' || selectedProduct) return null;
-    
-    const skuMap = {};
-    const channelMap = {};
-    
-    data.forEach(row => {
-      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
-      if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
-      if (selectedChannel !== 'All') {
-        const c = row.channel_name || row.channelname || row.channel || 'Unknown';
-        if (c !== selectedChannel) return;
-      }
-      
-      const sku = row.item_color || row.itemcolor || row.barcode || 'Unknown';
-      const val = row.priceVal;
-      const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
-      
-      if (!skuMap[sku]) skuMap[sku] = { name: sku, revenue: 0, units: 0 };
-      skuMap[sku].revenue += val;
-      skuMap[sku].units += 1;
-      
-      if (!channelMap[channel]) channelMap[channel] = { name: channel, revenue: 0, units: 0 };
-      channelMap[channel].revenue += val;
-      channelMap[channel].units += 1;
-    });
-    
-    const topProducts = Object.values(skuMap).sort((a,b) => b.revenue - a.revenue).slice(0, 5);
-    const channelDist = Object.values(channelMap).sort((a,b) => b.revenue - a.revenue);
-    
-    return { topProducts, channelDist };
-  }, [data, activePage, selectedProduct, selectedMonth, selectedDate, selectedChannel]);
-
   const goalMetrics = useMemo(() => {
     if (!data.length) return null;
 
@@ -1290,54 +1257,6 @@ function App() {
                     )}
                   </div>
                 </div>
-
-                {!selectedProduct && productOverviewData && (
-                  <div className="chart-grid">
-                    <div className="card">
-                      <div className="card-header">
-                        <h3 className="card-title">Top 5 Products in View</h3>
-                      </div>
-                      <div style={{ height: '300px', marginTop: '1rem' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={productOverviewData.topProducts} layout="vertical">
-                            <XAxis type="number" hide />
-                            <YAxis dataKey="name" type="category" width={100} fontSize={10} stroke="var(--text-secondary)" />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="revenue" fill="var(--accent-color)" radius={[0, 4, 4, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                    
-                    <div className="card">
-                      <div className="card-header">
-                        <h3 className="card-title">Channel Distribution</h3>
-                      </div>
-                      <div style={{ height: '300px', marginTop: '1rem' }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={productOverviewData.channelDist}
-                              dataKey="revenue"
-                              nameKey="name"
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={60}
-                              outerRadius={80}
-                              paddingAngle={5}
-                            >
-                              {productOverviewData.channelDist.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={getChannelColor(entry.name)} />
-                              ))}
-                            </Pie>
-                            <Tooltip content={<CustomTooltip />} />
-                            <Legend verticalAlign="bottom" height={36}/>
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
                 {selectedProduct && productSizeData && (
                   <div className="card" style={{ position: 'relative' }}>
