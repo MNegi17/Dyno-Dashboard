@@ -1,4 +1,4 @@
-// Dyno Dashboard - Main Application File
+// Dyno Dashboard v1.1 - with MN branding
 import { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { 
