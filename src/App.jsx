@@ -796,37 +796,6 @@ function App() {
   if (!session) {
     return (
       <div className="auth-container">
-        {/* User Initials and Rights Reserved */}
-        <div style={{ 
-          position: 'absolute', 
-          top: '2rem', 
-          right: '2rem', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '0.75rem',
-          zIndex: 100
-        }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 600, color: 'white', fontSize: '0.9rem' }}>Manan</div>
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)' }}>© 2026 Manan. All rights reserved.</div>
-          </div>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--accent-color) 0%, #8b5cf6 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            fontWeight: 700,
-            fontSize: '1rem',
-            boxShadow: '0 4px 10px rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
-          }}>
-            MN
-          </div>
-        </div>
         <div className="auth-card">
           <div className="auth-graphic"></div>
           
@@ -990,27 +959,6 @@ function App() {
               {activePage === 'goals' && 'Target & Goal Tracking'}
             </h1>
             <p>Real-time insights from your daily reports</p>
-          </div>
-          <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Manan</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>© 2026 Manan. All rights reserved.</div>
-            </div>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--accent-color) 0%, #8b5cf6 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontWeight: 700,
-              fontSize: '1rem',
-              boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)'
-            }}>
-              MN
-            </div>
           </div>
         </header>
 
