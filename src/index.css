@@ -183,9 +183,10 @@ input:focus {
 .main-content {
   flex: 1;
   padding: 2rem 3rem;
-  max-width: calc(100vw - 260px);
+  min-width: 0; /* Critical for grid stability in flex containers */
   height: 100vh;
   overflow-y: auto;
+  background: var(--bg-color);
 }
 
 /* Header & Upload */
@@ -313,14 +314,14 @@ input:focus {
 /* Dashboard Grid */
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1.5rem;
   margin-bottom: 1.5rem;
 }
 
 .chart-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
   gap: 1.5rem;
   margin-bottom: 1.5rem;
 }
@@ -428,14 +429,21 @@ input:focus {
 }
 
 /* Responsive */
-@media (max-width: 1024px) {
+@media (max-width: 1200px) {
   .dashboard-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
   }
+}
 
+@media (max-width: 1024px) {
+  .main-content {
+    padding: 1.5rem;
+  }
+  
   .chart-grid {
     grid-template-columns: 1fr !important;
   }
+}
 
   .full-width-chart {
     grid-column: span 1 !important;
