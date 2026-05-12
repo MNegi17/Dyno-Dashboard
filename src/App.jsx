@@ -214,48 +214,32 @@ function App() {
     e.preventDefault();
     setAuthError('');
     setIsLoading(true);
-    
-    // Ensure the ID entered matches the selected role's expected email
-    const expectedEmail = loginRole === 'admin' ? 'manannegi17@gmail.com' : 'user@dyno.com';
-    
-    if (authEmail.trim().toLowerCase() !== expectedEmail) {
-      setAuthError(`The ID entered does not match the ${loginRole.toUpperCase()} profile.`);
-      setIsLoading(false);
-      return;
-    }
 
     if (!otpStep) {
-      // Step 1: Verify Password via REAL Supabase Auth
+      // Step 1: Sign in directly with Supabase — no pre-checks
+      const emailToUse = authEmail.trim().toLowerCase();
       const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: authEmail.trim().toLowerCase(),
-        password: authPassword
+        email: emailToUse,
+        password: authPassword,
       });
 
       if (error) {
-        // Log error for developer console
-        console.error("Supabase Auth Error:", error);
-        
-        let msg = error.message;
-        if (msg === 'Invalid login credentials') {
-          msg = `Incorrect Password for ${loginRole.toUpperCase()}. Please check your password in Supabase.`;
-        }
-        setAuthError(msg);
+        console.error('Supabase Auth Error:', error);
+        setAuthError('Invalid credentials. Please check your ID and password.');
         setIsLoading(false);
         return;
       }
 
+      // Determine role from which button was selected
       if (loginRole === 'admin') {
-        // Admin logs in directly
         setSession(authData.session);
         localStorage.setItem('dyno_session', JSON.stringify(authData.session));
         setUserRole('admin');
         fetchData();
       } else {
-        // User role needs OTP
+        // User needs OTP verification
         const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
         setGeneratedOtp(newOtp);
-        
-        // Send OTP to gmail
         try {
           await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
             method: 'POST',
@@ -263,17 +247,16 @@ function App() {
             body: JSON.stringify({
               subject: 'Dyno Dashboard - Your OTP',
               message: `Your login OTP is: ${newOtp}`,
-              _captcha: 'false'
-            })
+              _captcha: 'false',
+            }),
           });
-          setOtpStep(true);
         } catch (err) {
-          console.error("Failed to send OTP", err);
-          setOtpStep(true);
+          console.error('Failed to send OTP email', err);
         }
+        setOtpStep(true);
       }
     } else {
-      // Step 2: Check OTP for USER role
+      // Step 2: Verify OTP for User role
       if (otpCode === generatedOtp) {
         const { data: { session: sbSession } } = await supabase.auth.getSession();
         if (sbSession) {
@@ -282,6 +265,9 @@ function App() {
           setUserRole('user');
           setOtpStep(false);
           fetchData();
+        } else {
+          setAuthError('Session expired. Please log in again.');
+          setOtpStep(false);
         }
       } else {
         setAuthError('Invalid OTP code. Please check your email.');
