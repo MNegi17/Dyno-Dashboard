@@ -445,11 +445,6 @@ input:focus {
   }
 }
 
-  .full-width-chart {
-    grid-column: span 1 !important;
-  }
-}
-
 @media (max-width: 768px) {
   .app-layout {
     flex-direction: column;
