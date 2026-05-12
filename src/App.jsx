@@ -240,6 +240,8 @@ function App() {
         // User needs OTP verification
         const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
         setGeneratedOtp(newOtp);
+        // Send OTP to the user's email
+        const otpDestination = 'manannegi17@gmail.com'; // Admin always receives OTP notifications
         try {
           await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
             method: 'POST',
@@ -967,14 +969,14 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   <button 
                     type="button"
                     className={`role-btn ${loginRole === 'admin' ? 'active' : ''}`}
-                    onClick={() => setLoginRole('admin')}
+                    onClick={() => { setLoginRole('admin'); setAuthEmail(''); setAuthPassword(''); setAuthError(''); }}
                   >
                     ADMIN
                   </button>
                   <button 
                     type="button"
                     className={`role-btn ${loginRole === 'user' ? 'active' : ''}`}
-                    onClick={() => setLoginRole('user')}
+                    onClick={() => { setLoginRole('user'); setAuthEmail(''); setAuthPassword(''); setAuthError(''); }}
                   >
                     USER
                   </button>
