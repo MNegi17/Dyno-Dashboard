@@ -83,6 +83,11 @@ const CustomSelect = ({ value, options, onChange, placeholder }) => {
   );
 };
 
+// Determine role from email — only the admin email gets admin access
+const getRoleFromEmail = (email) => {
+  return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
+};
+
 function App() {
   const [session, setSession] = useState(() => {
     const saved = localStorage.getItem('dyno_session');
@@ -92,7 +97,7 @@ function App() {
     const saved = localStorage.getItem('dyno_session');
     if (saved) {
       const parsed = JSON.parse(saved);
-      return parsed.user?.user_metadata?.role || 'user';
+      return getRoleFromEmail(parsed.user?.email || '');
     }
     return 'user';
   });
@@ -131,7 +136,7 @@ function App() {
       try {
         const parsed = JSON.parse(savedSession);
         setSession(parsed);
-        setUserRole(parsed.user?.user_metadata?.role || 'user');
+        setUserRole(getRoleFromEmail(parsed.user?.email || ''));
         fetchData();
       } catch (e) {
         console.error("Failed to parse saved session", e);
@@ -147,7 +152,9 @@ function App() {
         // If a real Supabase session exists, it takes priority
         setSession(sbSession);
         localStorage.setItem('dyno_session', JSON.stringify(sbSession));
-        setUserRole(sbSession.user.user_metadata?.role || 'user');
+        setUserRole(getRoleFromEmail(sbSession.user?.email || ''));
+        // Also re-fetch data on session restore
+        fetchData();
       } else if (event === 'SIGNED_OUT') {
         // Only clear if it was an explicit sign out
         setSession(null);
