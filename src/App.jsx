@@ -125,40 +125,34 @@ function App() {
   const [selectedFY, setSelectedFY] = useState('FY26-27');
 
   useEffect(() => {
-    // Check for real Supabase session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setSession(session);
-        localStorage.setItem('dyno_session', JSON.stringify(session));
-        setUserRole(session.user.user_metadata?.role || 'user');
+    // 1. Initialize from localStorage immediately
+    const savedSession = localStorage.getItem('dyno_session');
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession);
+        setSession(parsed);
+        setUserRole(parsed.user?.user_metadata?.role || 'user');
         fetchData();
-      } else {
-        // If no Supabase session, check if we have a manual session
-        const manual = localStorage.getItem('dyno_session');
-        if (manual) {
-          const parsed = JSON.parse(manual);
-          setSession(parsed);
-          setUserRole(parsed.user?.user_metadata?.role || 'user');
-          fetchData();
-        }
+      } catch (e) {
+        console.error("Failed to parse saved session", e);
+        localStorage.removeItem('dyno_session');
       }
-    });
+    }
 
+    // 2. Listen for REAL Supabase Auth changes (if any)
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        setSession(session);
-        localStorage.setItem('dyno_session', JSON.stringify(session));
-        setUserRole(session.user.user_metadata?.role || 'user');
-      } else {
-        // Only clear if it wasn't a manual session (Supabase logout event)
-        const current = localStorage.getItem('dyno_session');
-        if (current && !JSON.parse(current).manual) {
-          setSession(null);
-          localStorage.removeItem('dyno_session');
-          setUploadedFiles([]);
-        }
+    } = supabase.auth.onAuthStateChange((event, sbSession) => {
+      if (sbSession) {
+        // If a real Supabase session exists, it takes priority
+        setSession(sbSession);
+        localStorage.setItem('dyno_session', JSON.stringify(sbSession));
+        setUserRole(sbSession.user.user_metadata?.role || 'user');
+      } else if (event === 'SIGNED_OUT') {
+        // Only clear if it was an explicit sign out
+        setSession(null);
+        localStorage.removeItem('dyno_session');
+        setUploadedFiles([]);
       }
     });
 
