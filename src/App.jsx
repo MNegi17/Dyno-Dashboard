@@ -3,12 +3,12 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell
+  LineChart, Line, PieChart, Pie, Cell, Sector
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
-const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6'];
+const COLORS = ['#a3e635', '#bef264', '#d9f99d', '#65a30d', '#4d7c0f', '#365314'];
 
 const GOALS = {
   "April": { revenue: 23100000, asp: 800, units: 28875, apparel: 17325, footwear: 11550 },
@@ -29,16 +29,8 @@ const GOALS = {
 const getChannelColor = (channelName) => {
   if (!channelName) return COLORS[0];
   const name = channelName.toLowerCase();
-  if (name.includes('myntra')) return '#ff3f6c'; // Myntra Pink
-  if (name.includes('flipkart')) return '#ffc200'; // Flipkart Yellow
-  if (name.includes('d2c') || name.includes('shopify') || name.includes('website')) return '#10b981'; // D2C Green
-  if (name.includes('amazon')) return '#ff9900'; // Amazon Orange
-  if (name.includes('firstcry')) return '#f97316'; // Firstcry Orange
-  if (name.includes('nykaa')) return '#fc2779'; // Nykaa Pink
-  if (name.includes('ajio')) return '#2c4152'; // Ajio Dark Blue
-  if (name.includes('tatacliq') || name.includes('tata')) return '#eb0028'; // Tata Red
   
-  // Fallback to consistent color from COLORS array
+  // Return consistent monochromatic neon green scale based on name hash
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return COLORS[Math.abs(hash) % COLORS.length];
@@ -95,12 +87,13 @@ function App() {
   const [session, setSession] = useState(null);
   const [userRole, setUserRole] = useState('user'); // 'admin' or 'user'
   
-  // Auth Form State
+  const [loginRole, setLoginRole] = useState('user'); // 'admin' or 'user'
+  const [otpStep, setOtpStep] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isLogin, setIsLogin] = useState(true);
-  const [requestAdmin, setRequestAdmin] = useState(false);
   const [authError, setAuthError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ active: false, current: 0, total: 0 });
@@ -200,37 +193,65 @@ function App() {
     setAuthError('');
     setIsLoading(true);
     
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: authEmail,
-        password: authPassword,
-      });
-      if (error) {
-        setAuthError(error.message);
-      } else {
-        fetchData();
-      }
-    } else {
-      const { error } = await supabase.auth.signUp({
-        email: authEmail,
-        password: authPassword,
-        options: {
-          data: {
-            role: 'user'
+    // Fixed Credentials
+    const ADMIN_CRED = { email: 'dynomanan', pass: 'dyno@manan17' };
+    const USER_CRED = { email: 'dynodash', pass: 'dyno@purple26' };
+
+    if (!otpStep) {
+      // Step 1: Check ID/Password
+      const targetCred = loginRole === 'admin' ? ADMIN_CRED : USER_CRED;
+      
+      if (authEmail === targetCred.email && authPassword === targetCred.pass) {
+        if (loginRole === 'admin') {
+          // Admin logs in directly
+          setSession({ user: { email: 'admin@dyno.com', user_metadata: { role: 'admin' } } });
+          setUserRole('admin');
+          fetchData();
+        } else {
+          // User needs OTP
+          const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+          setGeneratedOtp(newOtp);
+          
+          // Send OTP to gmail
+          try {
+            await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({
+                subject: 'Dyno Dashboard - Your OTP',
+                message: `Your login OTP is: ${newOtp}`,
+                _captcha: 'false'
+              })
+            });
+            setOtpStep(true);
+          } catch (err) {
+            console.error("Failed to send OTP", err);
+            // Even if it fails, we'll set it for local testing if he sees console
+            setOtpStep(true);
           }
         }
-      });
-      if (error) setAuthError(error.message);
-      else {
-        setAuthError("Signup successful! You can now log in.");
-        setIsLogin(true);
+      } else {
+        setAuthError('Invalid ID or Password for ' + loginRole.toUpperCase());
+      }
+    } else {
+      // Step 2: Check OTP
+      if (otpCode === generatedOtp) {
+        setSession({ user: { email: 'user@dyno.com', user_metadata: { role: 'user' } } });
+        setUserRole('user');
+        fetchData();
+      } else {
+        setAuthError('Invalid OTP code. Please check your email.');
       }
     }
     setIsLoading(false);
   };
 
   const handleLogout = () => {
-    supabase.auth.signOut();
+    setSession(null);
+    setOtpStep(false);
+    setOtpCode('');
+    setAuthEmail('');
+    setAuthPassword('');
   };
 
   const data = useMemo(() => {
@@ -780,7 +801,25 @@ function App() {
     return null;
   };
 
-  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  const renderActiveShape = (props) => {
+  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill } = props;
+  return (
+    <g>
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 8}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        style={{ filter: `drop-shadow(0 0 8px ${fill})` }}
+      />
+    </g>
+  );
+};
+
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
     const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
@@ -797,6 +836,55 @@ function App() {
   if (!session) {
     return (
       <div className="auth-container">
+        {/* Floating Background Elements */}
+        <div className="auth-bg-shapes">
+          <div className="floating-icon" style={{ top: '15%', left: '10%', animationDelay: '0s' }}>
+            <BarChart2 size={48} />
+          </div>
+          <div className="floating-icon" style={{ top: '65%', left: '15%', animationDelay: '-5s' }}>
+            <TrendingUp size={64} />
+          </div>
+          <div className="floating-icon" style={{ top: '25%', left: '85%', animationDelay: '-10s' }}>
+            <Activity size={56} />
+          </div>
+          <div className="floating-icon" style={{ top: '75%', left: '80%', animationDelay: '-15s' }}>
+            <BarChart size={40} />
+          </div>
+          <div className="floating-icon" style={{ top: '40%', left: '50%', animationDelay: '-2s' }}>
+            <Layers size={32} />
+          </div>
+          <div className="floating-icon" style={{ top: '10%', left: '60%', animationDelay: '-8s' }}>
+            <ShoppingBag size={44} />
+          </div>
+          <div className="floating-icon" style={{ top: '85%', left: '40%', animationDelay: '-12s' }}>
+            <DollarSign size={50} />
+          </div>
+          <div className="floating-icon" style={{ top: '30%', left: '25%', animationDelay: '-3s' }}>
+            <PieChartIcon size={38} />
+          </div>
+          <div className="floating-icon" style={{ top: '50%', left: '85%', animationDelay: '-9s' }}>
+            <Database size={42} />
+          </div>
+          <div className="floating-icon" style={{ top: '10%', left: '35%', animationDelay: '-1s' }}>
+            <Globe size={30} />
+          </div>
+          <div className="floating-icon" style={{ top: '80%', left: '65%', animationDelay: '-6s' }}>
+            <Cpu size={36} />
+          </div>
+          <div className="floating-icon" style={{ top: '45%', left: '5%', animationDelay: '-7s' }}>
+            <Search size={40} />
+          </div>
+          <div className="floating-icon" style={{ top: '20%', left: '45%', animationDelay: '-4s' }}>
+            <Target size={52} />
+          </div>
+          <div className="floating-icon" style={{ top: '85%', left: '15%', animationDelay: '-11s' }}>
+            <TrendingDown size={34} />
+          </div>
+          <div className="floating-icon" style={{ top: '60%', left: '92%', animationDelay: '-14s' }}>
+            <Activity size={48} />
+          </div>
+        </div>
+
         {/* User Initials and Rights Reserved */}
         <div style={{ 
           position: 'absolute', 
@@ -808,22 +896,21 @@ function App() {
           zIndex: 100
         }}>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 600, color: 'white', fontSize: '0.9rem' }}>Manan</div>
-            <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)' }}>© 2026 Manan. All rights reserved.</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Manan</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>© 2026 Manan. All rights reserved.</div>
           </div>
           <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--accent-color) 0%, #8b5cf6 100%)',
+            width: '44px',
+            height: '44px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--accent-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'white',
-            fontWeight: 700,
-            fontSize: '1rem',
-            boxShadow: '0 4px 10px rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
+            color: '#000',
+            fontWeight: 900,
+            fontSize: '1.2rem',
+            boxShadow: '0 0 15px rgba(163, 230, 53, 0.4)',
           }}>
             MN
           </div>
@@ -832,84 +919,119 @@ function App() {
           <div className="auth-graphic"></div>
           
           <div className="auth-form-container">
-            <div className="auth-header">
-              <h2>Welcome to Dyno</h2>
-              <p>{isLogin ? 'Sign in to your Dyno Dashboard account to continue.' : 'Create a new Dyno Dashboard account to get started.'}</p>
-            </div>
-
-            {authError && <div className="auth-error">{authError}</div>}
-
-            <form className="auth-form" onSubmit={handleAuth}>
-              <div className="auth-form-group">
-                <input 
-                  className="auth-input"
-                  type="email" 
-                  placeholder="email or username" 
-                  value={authEmail} 
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="auth-form-group" style={{ position: 'relative' }}>
-                <input 
-                  className="auth-input"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="password" 
-                  value={authPassword} 
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  style={{ paddingRight: '2.5rem' }}
-                  required
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '1rem',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0
-                  }}
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
+              <div className="auth-header">
+                <h2>Welcome to Dyno</h2>
+                <p>
+                  {otpStep 
+                    ? 'Enter the 6-digit OTP sent to your registered email.' 
+                    : `Please enter your ${loginRole.toUpperCase()} credentials to continue.`}
+                </p>
               </div>
 
-              {isLogin && (
-                <div className="auth-remember-forgot">
-                  <label className="auth-remember">
-                    <input type="checkbox" />
-                    Remember
-                  </label>
-                  <span className="auth-forgot">Forgot your password?</span>
+              {authError && <div className="auth-error">{authError}</div>}
+
+              {!otpStep && (
+                <div className="role-selector">
+                  <button 
+                    type="button"
+                    className={`role-btn ${loginRole === 'admin' ? 'active' : ''}`}
+                    onClick={() => setLoginRole('admin')}
+                  >
+                    ADMIN
+                  </button>
+                  <button 
+                    type="button"
+                    className={`role-btn ${loginRole === 'user' ? 'active' : ''}`}
+                    onClick={() => setLoginRole('user')}
+                  >
+                    USER
+                  </button>
                 </div>
               )}
 
-              <div className="auth-submit-row">
-                <button type="submit" className="auth-submit" disabled={isLoading}>
-                  {isLoading ? 'WAIT...' : (isLogin ? 'NEXT' : 'CREATE')} 
-                  {!isLoading && <span style={{ marginLeft: '4px' }}>→</span>}
-                </button>
-              </div>
-            </form>
+              <form className="auth-form" onSubmit={handleAuth}>
+                {!otpStep ? (
+                  <>
+                    <div className="auth-form-group">
+                      <input 
+                        className="auth-input"
+                        type="text" 
+                        placeholder="ID" 
+                        value={authEmail} 
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="auth-form-group" style={{ position: 'relative' }}>
+                      <input 
+                        className="auth-input"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="password" 
+                        value={authPassword} 
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        style={{ paddingRight: '2.5rem' }}
+                        required
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          position: 'absolute',
+                          right: '1rem',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: '#94a3b8',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: 0
+                        }}
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="auth-form-group">
+                    <input 
+                      className="auth-input"
+                      type="text" 
+                      placeholder="Enter 6-digit OTP" 
+                      value={otpCode} 
+                      onChange={(e) => setOtpCode(e.target.value)}
+                      maxLength={6}
+                      style={{ textAlign: 'center', letterSpacing: '4px', fontSize: '1.25rem' }}
+                      required
+                      autoFocus
+                    />
+                  </div>
+                )}
 
-            <div className="auth-toggle">
-              {isLogin ? "Create account" : "Already have an account?"}
-              <button type="button" onClick={() => { setIsLogin(!isLogin); setAuthError(''); }}>
-                {isLogin ? 'Sign Up' : 'Sign In'}
-              </button>
+                <div className="auth-submit-row">
+                  {otpStep && (
+                    <button 
+                      type="button" 
+                      className="auth-forgot" 
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      onClick={() => setOtpStep(false)}
+                    >
+                      ← Back
+                    </button>
+                  )}
+                  <button type="submit" className="auth-submit" disabled={isLoading} style={{ marginLeft: 'auto' }}>
+                    {isLoading ? 'WAIT...' : (otpStep ? 'VERIFY OTP' : 'LOGIN')} 
+                    {!isLoading && <span style={{ marginLeft: '4px' }}>→</span>}
+                  </button>
+                </div>
+              </form>
+
             </div>
           </div>
         </div>
-      </div>
-    );
+      );
   }
 
   return (
@@ -998,17 +1120,17 @@ function App() {
               <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>© 2026 Manan. All rights reserved.</div>
             </div>
             <div style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, var(--accent-color) 0%, #8b5cf6 100%)',
+              width: '44px',
+              height: '44px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--accent-color)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'white',
-              fontWeight: 700,
-              fontSize: '1rem',
-              boxShadow: '0 4px 10px rgba(99, 102, 241, 0.3)'
+              color: '#000',
+              fontWeight: 900,
+              fontSize: '1.2rem',
+              boxShadow: '0 0 15px rgba(163, 230, 53, 0.4)',
             }}>
               MN
             </div>
@@ -1364,9 +1486,18 @@ function App() {
                           />
                           <Tooltip 
                             content={<CustomTooltip />} 
-                            cursor={{ fill: 'rgba(255,255,255,0.05)' }} 
+                            cursor={false} 
                           />
-                          <Bar dataKey="revenue" radius={[0, 4, 4, 0]} barSize={25}>
+                          <Bar 
+                            dataKey="revenue" 
+                            radius={[0, 4, 4, 0]} 
+                            barSize={25}
+                            activeBar={{ 
+                              stroke: 'var(--accent-color)', 
+                              strokeWidth: 2,
+                              fillOpacity: 0.8
+                            }}
+                          >
                             {productSizeData.sizes.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
@@ -1441,8 +1572,16 @@ function App() {
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" horizontal={false} />
                             <XAxis type="number" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
                             <YAxis dataKey="name" type="category" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} width={120} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Bar 
+                              dataKey="value" 
+                              radius={[0, 4, 4, 0]}
+                              activeBar={{ 
+                                stroke: 'var(--accent-color)', 
+                                strokeWidth: 2,
+                                fillOpacity: 0.8
+                              }}
+                            >
                               {chartsData.channelData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={getChannelColor(entry.name)} />
                               ))}
@@ -1460,22 +1599,24 @@ function App() {
                       <div style={{ height: 300 }}>
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
-                            <Pie
-                              data={chartsData.divisionData}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={50}
-                              outerRadius={110}
-                              paddingAngle={5}
-                              dataKey="value"
-                              labelLine={false}
-                              label={renderCustomizedLabel}
-                            >
-                              {chartsData.divisionData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip content={<CustomTooltip />} />
+                             <Pie
+                               data={chartsData.divisionData}
+                               cx="50%"
+                               cy="50%"
+                               innerRadius={50}
+                               outerRadius={110}
+                               paddingAngle={5}
+                               dataKey="value"
+                               labelLine={false}
+                               label={renderCustomizedLabel}
+                               activeShape={renderActiveShape}
+                               style={{ cursor: 'pointer' }}
+                             >
+                               {chartsData.divisionData.map((entry, index) => (
+                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                               ))}
+                             </Pie>
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
                             <Legend wrapperStyle={{ color: 'var(--text-primary)' }} />
                           </PieChart>
                         </ResponsiveContainer>
@@ -1493,8 +1634,16 @@ function App() {
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
                             <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
                             <YAxis stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Bar 
+                              dataKey="value" 
+                              radius={[4, 4, 0, 0]}
+                              activeBar={{ 
+                                stroke: 'var(--accent-color)', 
+                                strokeWidth: 2,
+                                fillOpacity: 0.8
+                              }}
+                            >
                               {chartsData.categoryData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
                               ))}
@@ -1576,7 +1725,7 @@ function App() {
                           tick={{fill: 'var(--text-secondary)'}} 
                           tickFormatter={(value) => `₹${value}`} 
                         />
-                        <Tooltip content={<CustomTooltip />} />
+                        <Tooltip content={<CustomTooltip />} cursor={false} />
                         <Line type="monotone" dataKey="asp" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: 'var(--bg-color)', stroke: '#10b981', strokeWidth: 2 }} activeDot={{ r: 8 }} />
                       </LineChart>
                     </ResponsiveContainer>
