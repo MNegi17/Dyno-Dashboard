@@ -215,20 +215,31 @@ function App() {
     setAuthError('');
     setIsLoading(true);
     
-    // Map selected role to Supabase User Email
-    const targetEmail = loginRole === 'admin' ? 'admin@dyno.com' : 'user@dyno.com';
+    // Ensure the ID entered matches the selected role's expected email
+    const expectedEmail = loginRole === 'admin' ? 'manannegi17@gmail.com' : 'user@dyno.com';
+    
+    if (authEmail.trim().toLowerCase() !== expectedEmail) {
+      setAuthError(`The ID entered does not match the ${loginRole.toUpperCase()} profile.`);
+      setIsLoading(false);
+      return;
+    }
 
     if (!otpStep) {
       // Step 1: Verify Password via REAL Supabase Auth
       const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: targetEmail,
+        email: authEmail.trim().toLowerCase(),
         password: authPassword
       });
 
       if (error) {
-        setAuthError(error.message === 'Invalid login credentials' 
-          ? `Invalid ID or Password for ${loginRole.toUpperCase()}` 
-          : error.message);
+        // Log error for developer console
+        console.error("Supabase Auth Error:", error);
+        
+        let msg = error.message;
+        if (msg === 'Invalid login credentials') {
+          msg = `Incorrect Password for ${loginRole.toUpperCase()}. Please check your password in Supabase.`;
+        }
+        setAuthError(msg);
         setIsLoading(false);
         return;
       }
@@ -258,20 +269,20 @@ function App() {
           setOtpStep(true);
         } catch (err) {
           console.error("Failed to send OTP", err);
-          // Even if it fails, let them proceed for testing if they see console
           setOtpStep(true);
         }
       }
     } else {
       // Step 2: Check OTP for USER role
       if (otpCode === generatedOtp) {
-        // Session is already established from signInWithPassword
-        const sbSession = (await supabase.auth.getSession()).data.session;
-        setSession(sbSession);
-        localStorage.setItem('dyno_session', JSON.stringify(sbSession));
-        setUserRole('user');
-        setOtpStep(false);
-        fetchData();
+        const { data: { session: sbSession } } = await supabase.auth.getSession();
+        if (sbSession) {
+          setSession(sbSession);
+          localStorage.setItem('dyno_session', JSON.stringify(sbSession));
+          setUserRole('user');
+          setOtpStep(false);
+          fetchData();
+        }
       } else {
         setAuthError('Invalid OTP code. Please check your email.');
       }
