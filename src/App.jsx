@@ -84,8 +84,18 @@ const CustomSelect = ({ value, options, onChange, placeholder }) => {
 };
 
 function App() {
-  const [session, setSession] = useState(null);
-  const [userRole, setUserRole] = useState('user'); // 'admin' or 'user'
+  const [session, setSession] = useState(() => {
+    const saved = localStorage.getItem('dyno_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [userRole, setUserRole] = useState(() => {
+    const saved = localStorage.getItem('dyno_session');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return parsed.user?.user_metadata?.role || 'user';
+    }
+    return 'user';
+  });
   
   const [loginRole, setLoginRole] = useState('user'); // 'admin' or 'user'
   const [otpStep, setOtpStep] = useState(false);
@@ -115,22 +125,40 @@ function App() {
   const [selectedFY, setSelectedFY] = useState('FY26-27');
 
   useEffect(() => {
+    // Check for real Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
+      if (session) {
+        setSession(session);
+        localStorage.setItem('dyno_session', JSON.stringify(session));
         setUserRole(session.user.user_metadata?.role || 'user');
         fetchData();
+      } else {
+        // If no Supabase session, check if we have a manual session
+        const manual = localStorage.getItem('dyno_session');
+        if (manual) {
+          const parsed = JSON.parse(manual);
+          setSession(parsed);
+          setUserRole(parsed.user?.user_metadata?.role || 'user');
+          fetchData();
+        }
       }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      if (session?.user) {
+      if (session) {
+        setSession(session);
+        localStorage.setItem('dyno_session', JSON.stringify(session));
         setUserRole(session.user.user_metadata?.role || 'user');
       } else {
-        setUploadedFiles([]);
+        // Only clear if it wasn't a manual session (Supabase logout event)
+        const current = localStorage.getItem('dyno_session');
+        if (current && !JSON.parse(current).manual) {
+          setSession(null);
+          localStorage.removeItem('dyno_session');
+          setUploadedFiles([]);
+        }
       }
     });
 
@@ -204,9 +232,7 @@ function App() {
       if (authEmail === targetCred.email && authPassword === targetCred.pass) {
         if (loginRole === 'admin') {
           // Admin logs in directly
-          setSession({ user: { email: 'admin@dyno.com', user_metadata: { role: 'admin' } } });
-          setUserRole('admin');
-          fetchData();
+          handleAdminLogin();
         } else {
           // User needs OTP
           const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -236,7 +262,12 @@ function App() {
     } else {
       // Step 2: Check OTP
       if (otpCode === generatedOtp) {
-        setSession({ user: { email: 'user@dyno.com', user_metadata: { role: 'user' } } });
+        const manualSession = { 
+          user: { email: 'user@dyno.com', user_metadata: { role: 'user' } },
+          manual: true 
+        };
+        setSession(manualSession);
+        localStorage.setItem('dyno_session', JSON.stringify(manualSession));
         setUserRole('user');
         fetchData();
       } else {
@@ -246,8 +277,21 @@ function App() {
     setIsLoading(false);
   };
 
+  const handleAdminLogin = () => {
+    const manualSession = { 
+      user: { email: 'admin@dyno.com', user_metadata: { role: 'admin' } },
+      manual: true 
+    };
+    setSession(manualSession);
+    localStorage.setItem('dyno_session', JSON.stringify(manualSession));
+    setUserRole('admin');
+    fetchData();
+  };
+
   const handleLogout = () => {
     setSession(null);
+    localStorage.removeItem('dyno_session');
+    supabase.auth.signOut();
     setOtpStep(false);
     setOtpCode('');
     setAuthEmail('');
