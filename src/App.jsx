@@ -215,71 +215,68 @@ function App() {
     setAuthError('');
     setIsLoading(true);
     
-    // Fixed Credentials
-    const ADMIN_CRED = { email: 'dynomanan', pass: 'dyno@manan17' };
-    const USER_CRED = { email: 'dynodash', pass: 'dyno@purple26' };
+    // Map selected role to Supabase User Email
+    const targetEmail = loginRole === 'admin' ? 'admin@dyno.com' : 'user@dyno.com';
 
     if (!otpStep) {
-      // Step 1: Check ID/Password
-      const targetCred = loginRole === 'admin' ? ADMIN_CRED : USER_CRED;
-      
-      if (authEmail === targetCred.email && authPassword === targetCred.pass) {
-        if (loginRole === 'admin') {
-          // Admin logs in directly
-          handleAdminLogin();
-        } else {
-          // User needs OTP
-          const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-          setGeneratedOtp(newOtp);
-          
-          // Send OTP to gmail
-          try {
-            await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({
-                subject: 'Dyno Dashboard - Your OTP',
-                message: `Your login OTP is: ${newOtp}`,
-                _captcha: 'false'
-              })
-            });
-            setOtpStep(true);
-          } catch (err) {
-            console.error("Failed to send OTP", err);
-            // Even if it fails, we'll set it for local testing if he sees console
-            setOtpStep(true);
-          }
-        }
+      // Step 1: Verify Password via REAL Supabase Auth
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email: targetEmail,
+        password: authPassword
+      });
+
+      if (error) {
+        setAuthError(error.message === 'Invalid login credentials' 
+          ? `Invalid ID or Password for ${loginRole.toUpperCase()}` 
+          : error.message);
+        setIsLoading(false);
+        return;
+      }
+
+      if (loginRole === 'admin') {
+        // Admin logs in directly
+        setSession(authData.session);
+        localStorage.setItem('dyno_session', JSON.stringify(authData.session));
+        setUserRole('admin');
+        fetchData();
       } else {
-        setAuthError('Invalid ID or Password for ' + loginRole.toUpperCase());
+        // User role needs OTP
+        const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedOtp(newOtp);
+        
+        // Send OTP to gmail
+        try {
+          await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({
+              subject: 'Dyno Dashboard - Your OTP',
+              message: `Your login OTP is: ${newOtp}`,
+              _captcha: 'false'
+            })
+          });
+          setOtpStep(true);
+        } catch (err) {
+          console.error("Failed to send OTP", err);
+          // Even if it fails, let them proceed for testing if they see console
+          setOtpStep(true);
+        }
       }
     } else {
-      // Step 2: Check OTP
+      // Step 2: Check OTP for USER role
       if (otpCode === generatedOtp) {
-        const manualSession = { 
-          user: { email: 'user@dyno.com', user_metadata: { role: 'user' } },
-          manual: true 
-        };
-        setSession(manualSession);
-        localStorage.setItem('dyno_session', JSON.stringify(manualSession));
+        // Session is already established from signInWithPassword
+        const sbSession = (await supabase.auth.getSession()).data.session;
+        setSession(sbSession);
+        localStorage.setItem('dyno_session', JSON.stringify(sbSession));
         setUserRole('user');
+        setOtpStep(false);
         fetchData();
       } else {
         setAuthError('Invalid OTP code. Please check your email.');
       }
     }
     setIsLoading(false);
-  };
-
-  const handleAdminLogin = () => {
-    const manualSession = { 
-      user: { email: 'admin@dyno.com', user_metadata: { role: 'admin' } },
-      manual: true 
-    };
-    setSession(manualSession);
-    localStorage.setItem('dyno_session', JSON.stringify(manualSession));
-    setUserRole('admin');
-    fetchData();
   };
 
   const handleLogout = () => {
@@ -871,7 +868,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
     );
   };
 
-  if (!session) {
+  if (!session || (loginRole === 'user' && otpStep)) {
     return (
       <div className="auth-container">
         {/* Floating Background Elements */}
@@ -994,7 +991,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <input 
                         className="auth-input"
                         type="text" 
-                        placeholder="ID" 
+                        placeholder={loginRole === 'admin' ? "Admin ID" : "User ID"}
                         value={authEmail} 
                         onChange={(e) => setAuthEmail(e.target.value)}
                         required
