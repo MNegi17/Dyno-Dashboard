@@ -137,6 +137,7 @@ function App() {
         const parsed = JSON.parse(savedSession);
         setSession(parsed);
         setUserRole(getRoleFromEmail(parsed.user?.email || ''));
+        // Initial fetch only if we have a session
         fetchData();
       } catch (e) {
         console.error("Failed to parse saved session", e);
@@ -144,19 +145,25 @@ function App() {
       }
     }
 
-    // 2. Listen for REAL Supabase Auth changes (if any)
+    // 2. Listen for REAL Supabase Auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, sbSession) => {
+      // Only trigger a full state reset/fetch if the user actually changed
+      // or if we just signed in. Avoid re-fetching on TOKEN_REFRESHED or minor events.
       if (sbSession) {
-        // If a real Supabase session exists, it takes priority
+        const currentUser = session?.user?.id;
+        const newUser = sbSession.user?.id;
+
         setSession(sbSession);
         localStorage.setItem('dyno_session', JSON.stringify(sbSession));
         setUserRole(getRoleFromEmail(sbSession.user?.email || ''));
-        // Also re-fetch data on session restore
-        fetchData();
+
+        // Only fetch if it's a new login or user change
+        if (newUser !== currentUser || event === 'SIGNED_IN') {
+          fetchData();
+        }
       } else if (event === 'SIGNED_OUT') {
-        // Only clear if it was an explicit sign out
         setSession(null);
         localStorage.removeItem('dyno_session');
         setUploadedFiles([]);
@@ -164,7 +171,7 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // Note: session dependency removed to prevent loops, using internal check
 
   const fetchData = async () => {
     // 1. Fetch only metadata first (Lightning fast)
