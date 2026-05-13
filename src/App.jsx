@@ -131,6 +131,9 @@ function App() {
 
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
+  // Temporary storage for user credentials during OTP verification
+  const pendingEmailRef = useRef('');
+  const pendingPassRef = useRef('');
 
   useEffect(() => {
     // 1. Initialize from localStorage immediately (on page load/reload)
@@ -254,11 +257,17 @@ function App() {
         hasFetchedRef.current = true;
         fetchData();
       } else {
-        // User needs OTP verification
+        // User needs OTP verification.
+        // IMPORTANT: Sign out immediately so the session doesn't flash the dashboard.
+        // We'll re-authenticate after OTP is confirmed.
+        await supabase.auth.signOut();
+        
         const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
         setGeneratedOtp(newOtp);
-        // Send OTP to the user's email
-        const otpDestination = 'manannegi17@gmail.com'; // Admin always receives OTP notifications
+        // Store credentials temporarily for re-auth after OTP
+        const tempEmail = authEmail.trim().toLowerCase();
+        const tempPass = authPassword;
+        
         try {
           await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
             method: 'POST',
@@ -272,22 +281,29 @@ function App() {
         } catch (err) {
           console.error('Failed to send OTP email', err);
         }
+        // Store credentials in refs for re-use after OTP
+        pendingEmailRef.current = tempEmail;
+        pendingPassRef.current = tempPass;
         setOtpStep(true);
       }
     } else {
-      // Step 2: Verify OTP for User role
+      // Step 2: Verify OTP for User role, then re-authenticate
       if (otpCode === generatedOtp) {
-        const { data: { session: sbSession } } = await supabase.auth.getSession();
-        if (sbSession) {
-          setSession(sbSession);
-          localStorage.setItem('dyno_session', JSON.stringify(sbSession));
+        // Re-sign in with Supabase now that OTP is verified
+        const { data: reAuthData, error: reAuthError } = await supabase.auth.signInWithPassword({
+          email: pendingEmailRef.current,
+          password: pendingPassRef.current,
+        });
+        if (reAuthError || !reAuthData.session) {
+          setAuthError('Session error. Please log in again.');
+          setOtpStep(false);
+        } else {
+          setSession(reAuthData.session);
+          localStorage.setItem('dyno_session', JSON.stringify(reAuthData.session));
           setUserRole('user');
           setOtpStep(false);
           hasFetchedRef.current = true;
           fetchData();
-        } else {
-          setAuthError('Session expired. Please log in again.');
-          setOtpStep(false);
         }
       } else {
         setAuthError('Invalid OTP code. Please check your email.');
@@ -937,7 +953,35 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </div>
 
-        {/* User Initials and Rights Reserved */}
+        {/* Dyno Logo - Top Left */}
+        <div 
+          onClick={() => window.location.reload()}
+          style={{
+            position: 'absolute',
+            top: '2rem',
+            left: '2rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.6rem',
+            cursor: 'pointer',
+            zIndex: 100,
+            textDecoration: 'none',
+          }}
+        >
+          <div style={{
+            width: '36px',
+            height: '36px',
+            borderRadius: '8px',
+            background: 'var(--accent-color)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 0 12px rgba(163, 230, 53, 0.5)',
+          }}>
+            <Activity size={20} color="#000" />
+          </div>
+          <span style={{ fontWeight: 800, fontSize: '1.4rem', color: 'var(--text-primary)', letterSpacing: '0.05em' }}>Dyno</span>
+        </div>
         <div style={{ 
           position: 'absolute', 
           top: '2rem', 
@@ -1091,7 +1135,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-top">
-          <div className="brand">
+          <div 
+            className="brand"
+            onClick={() => setActivePage('dashboard')}
+            style={{ cursor: 'pointer' }}
+            title="Go to Dashboard"
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Activity className="brand-icon" size={28} />
               Dyno
