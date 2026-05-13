@@ -129,41 +129,43 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedFY, setSelectedFY] = useState('FY26-27');
 
+  // Guard: ensures fetchData is called at most once per session lifecycle
+  const hasFetchedRef = useRef(false);
+
   useEffect(() => {
-    // 1. Initialize from localStorage immediately
+    // 1. Initialize from localStorage immediately (on page load/reload)
     const savedSession = localStorage.getItem('dyno_session');
     if (savedSession) {
       try {
         const parsed = JSON.parse(savedSession);
         setSession(parsed);
         setUserRole(getRoleFromEmail(parsed.user?.email || ''));
-        // Initial fetch only if we have a session
-        fetchData();
+        // Fetch data once on initial load
+        if (!hasFetchedRef.current) {
+          hasFetchedRef.current = true;
+          fetchData();
+        }
       } catch (e) {
         console.error("Failed to parse saved session", e);
         localStorage.removeItem('dyno_session');
       }
     }
 
-    // 2. Listen for REAL Supabase Auth changes
+    // 2. Listen for Supabase Auth changes
+    // IMPORTANT: Only update session/role here. NEVER call fetchData() here.
+    // fetchData() is called explicitly after login and on initial mount only.
+    // This prevents the dashboard from re-downloading data on every tab switch
+    // (which triggers TOKEN_REFRESHED or INITIAL_SESSION events).
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, sbSession) => {
-      // Only trigger a full state reset/fetch if the user actually changed
-      // or if we just signed in. Avoid re-fetching on TOKEN_REFRESHED or minor events.
       if (sbSession) {
-        const currentUser = session?.user?.id;
-        const newUser = sbSession.user?.id;
-
         setSession(sbSession);
         localStorage.setItem('dyno_session', JSON.stringify(sbSession));
         setUserRole(getRoleFromEmail(sbSession.user?.email || ''));
-
-        // Only fetch if it's a new login or user change
-        if (newUser !== currentUser || event === 'SIGNED_IN') {
-          fetchData();
-        }
+        // Do NOT call fetchData() here — handled by handleAuth and initial mount
       } else if (event === 'SIGNED_OUT') {
+        hasFetchedRef.current = false;
         setSession(null);
         localStorage.removeItem('dyno_session');
         setUploadedFiles([]);
@@ -171,7 +173,7 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, []); // Note: session dependency removed to prevent loops, using internal check
+  }, []);
 
   const fetchData = async () => {
     // 1. Fetch only metadata first (Lightning fast)
@@ -249,6 +251,7 @@ function App() {
         setSession(authData.session);
         localStorage.setItem('dyno_session', JSON.stringify(authData.session));
         setUserRole('admin');
+        hasFetchedRef.current = true;
         fetchData();
       } else {
         // User needs OTP verification
@@ -280,6 +283,7 @@ function App() {
           localStorage.setItem('dyno_session', JSON.stringify(sbSession));
           setUserRole('user');
           setOtpStep(false);
+          hasFetchedRef.current = true;
           fetchData();
         } else {
           setAuthError('Session expired. Please log in again.');
