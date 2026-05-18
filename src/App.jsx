@@ -1179,7 +1179,191 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </div>
         <div className="auth-card">
-          <div className="auth-graphic"></div>
+          <div className="auth-graphic" style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            padding: '3.5rem 3rem',
+            color: '#ffffff',
+            position: 'relative',
+            overflow: 'hidden'
+          }}>
+            {/* Ambient Background Glows */}
+            <div style={{
+              position: 'absolute',
+              top: '-20%',
+              left: '-20%',
+              width: '60%',
+              height: '60%',
+              background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%)',
+              pointerEvents: 'none'
+            }} />
+            
+            {/* Tech grid overlay */}
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundImage: `
+                linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)
+              `,
+              backgroundSize: '24px 24px',
+              opacity: 0.85,
+              pointerEvents: 'none'
+            }} />
+
+            {/* Glowing Analytical Dashboard Mockup */}
+            <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', gap: '2rem', width: '100%' }}>
+              
+              {/* Modern Glass Dashboard Card 1 */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.07)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: '16px',
+                padding: '1.75rem',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.25), inset 0 0 20px rgba(255,255,255,0.05)',
+                transform: 'perspective(1000px) rotateY(-4deg) rotateX(4deg)',
+                transition: 'all 0.3s ease'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.85 }}>Live Analytics</span>
+                    <h4 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '2px 0 0 0', textShadow: '0 0 10px rgba(255,255,255,0.3)', color: '#fff' }}>$142,850.40</h4>
+                  </div>
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.15)',
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    boxShadow: '0 4px 10px rgba(0,0,0,0.1)'
+                  }}>
+                    <TrendingUp size={12} color="#fff" />
+                    +42.5%
+                  </div>
+                </div>
+
+                {/* Glowing SVG Mini Sparkline chart */}
+                <div style={{ height: '70px', width: '100%', marginTop: '1.5rem', position: 'relative' }}>
+                  <svg viewBox="0 0 300 70" width="100%" height="100%" style={{ overflow: 'visible' }}>
+                    <defs>
+                      <linearGradient id="sparklineGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(255, 255, 255, 0.4)" />
+                        <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+                      </linearGradient>
+                      <filter id="neonGlowSpark" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="3" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                      </filter>
+                    </defs>
+                    {/* Area under the line */}
+                    <path 
+                      d="M0,70 L0,55 Q30,35 60,45 Q90,55 120,25 Q150,-5 180,35 Q210,75 240,20 Q270,-35 300,10 L300,70 Z" 
+                      fill="url(#sparklineGrad)" 
+                    />
+                    {/* Line */}
+                    <path 
+                      d="M0,55 Q30,35 60,45 Q90,55 120,25 Q150,-5 180,35 Q210,75 240,20 Q270,-35 300,10" 
+                      fill="none" 
+                      stroke="#ffffff" 
+                      strokeWidth="3.5" 
+                      strokeLinecap="round"
+                      filter="url(#neonGlowSpark)"
+                    />
+                    {/* Pulsing glow dots */}
+                    <circle cx="150" cy="15" r="5" fill="#ffffff" filter="url(#neonGlowSpark)" />
+                    <circle cx="300" cy="10" r="5" fill="#ffffff" filter="url(#neonGlowSpark)" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Modern Glass Dashboard Card 2 */}
+              <div style={{
+                display: 'flex',
+                gap: '1.25rem',
+                transform: 'perspective(1000px) rotateY(-4deg) rotateX(4deg) translateZ(20px)'
+              }}>
+                {/* Metric 1 */}
+                <div style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                  boxShadow: '0 15px 30px rgba(0,0,0,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem'
+                }}>
+                  <div style={{ position: 'relative', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {/* Radial progress ring SVG */}
+                    <svg width="48" height="48" viewBox="0 0 36 36" style={{ overflow: 'visible' }}>
+                      <circle cx="18" cy="18" r="15.915" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                      <circle cx="18" cy="18" r="15.915" fill="none" stroke="#ffffff" strokeWidth="3" 
+                        strokeDasharray="80 20" strokeDashoffset="25" strokeLinecap="round"
+                        filter="url(#neonGlowSpark)"
+                      />
+                    </svg>
+                    <span style={{ position: 'absolute', fontSize: '0.75rem', fontWeight: 800 }}>80%</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', display: 'block' }}>Target</span>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 800 }}>Completed</span>
+                  </div>
+                </div>
+
+                {/* Metric 2 */}
+                <div style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                  boxShadow: '0 15px 30px rgba(0,0,0,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem'
+                }}>
+                  <div style={{ position: 'relative', width: '48px', height: '48px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="48" height="48" viewBox="0 0 36 36" style={{ overflow: 'visible' }}>
+                      <circle cx="18" cy="18" r="15.915" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3" />
+                      <circle cx="18" cy="18" r="15.915" fill="none" stroke="#ffffff" strokeWidth="3" 
+                        strokeDasharray="64 36" strokeDashoffset="25" strokeLinecap="round"
+                        filter="url(#neonGlowSpark)"
+                      />
+                    </svg>
+                    <span style={{ position: 'absolute', fontSize: '0.75rem', fontWeight: 800 }}>64%</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', display: 'block' }}>Efficiency</span>
+                    <span style={{ fontSize: '0.95rem', fontWeight: 800 }}>Optimal</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Subtle brand graphic details at the bottom */}
+            <div style={{
+              position: 'absolute',
+              bottom: '2.5rem',
+              left: '3rem',
+              zIndex: 2,
+              opacity: 0.85
+            }}>
+              <h5 style={{ fontSize: '1rem', fontWeight: 800, letterSpacing: '0.05em', margin: 0, textTransform: 'uppercase' }}>Dyno Data Engine v2.6</h5>
+              <p style={{ fontSize: '0.75rem', fontWeight: 500, margin: '4px 0 0 0', opacity: 0.8 }}>Predictive Analytics & Real-Time Syncing</p>
+            </div>
+          </div>
           
           <div className="auth-form-container">
               <div className="auth-header">
