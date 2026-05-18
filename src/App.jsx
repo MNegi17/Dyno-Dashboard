@@ -7,9 +7,7 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu } from 'lucide-react';
 import { supabase } from './supabaseClient';
-
-const COLORS = ['#a3e635', '#bef264', '#d9f99d', '#65a30d', '#4d7c0f', '#365314'];
-
+const COLORS = ['#ba54f5', '#1d8cf8', '#00f2c4', '#ff8d72', '#fd5d93', '#8965e0'];
 const GOALS = {
   "April": { revenue: 23100000, asp: 800, units: 28875, apparel: 17325, footwear: 11550 },
   "May": { revenue: 25410000, asp: 800, units: 31763, apparel: 19058, footwear: 12705 },
@@ -127,7 +125,7 @@ function App() {
   const [selectedDivision, setSelectedDivision] = useState('All');
   const [selectedChannel, setSelectedChannel] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedFY, setSelectedFY] = useState('FY26-27');
+  const [selectedFY, setSelectedFY] = useState('2026');
 
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
@@ -212,11 +210,74 @@ function App() {
       const { data, error } = await supabase.from('uploaded_files').select('data').eq('id', fileId).single();
       
       if (!error && data && data.data) {
-        // Rehydrate dates
-        const parsedRows = data.data.map(row => ({
-          ...row,
-          parsedDate: row.parsedDate ? new Date(row.parsedDate) : null
-        }));
+        // Rehydrate dates and classify Financial Year (FY) dynamically
+        const parsedRows = data.data.map(row => {
+          let dateObj = null;
+          const rawYear = row.year; // Check for a separate 'year' column
+          if (row.parsedDate) {
+            dateObj = new Date(row.parsedDate);
+            if (rawYear && !isNaN(rawYear)) {
+              dateObj.setFullYear(parseInt(rawYear));
+            }
+          } else {
+            // Find the date field by searching for keys dynamically, giving absolute priority to "day"
+            let rawDateVal = undefined;
+            const dayKey = Object.keys(row).find(k => k === 'day');
+            if (dayKey) {
+              rawDateVal = row[dayKey];
+            }
+            if (rawDateVal === undefined) {
+              rawDateVal = row.date;
+            }
+            if (rawDateVal === undefined) {
+              const dateKey = Object.keys(row).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+              if (dateKey) {
+                rawDateVal = row[dateKey];
+              }
+            }
+            if (rawDateVal) {
+              try {
+                let dateStr = rawDateVal.toString().trim();
+                if (rawYear && !isNaN(rawYear)) {
+                  const yearStr = rawYear.toString().trim();
+                  // If the year isn't already in the date string, append it
+                  if (!dateStr.includes(yearStr)) {
+                    dateStr = `${dateStr} ${yearStr}`;
+                  }
+                }
+                dateObj = new Date(dateStr);
+              } catch {
+                dateObj = null;
+              }
+            }
+          }
+          if (dateObj && isNaN(dateObj.getTime())) {
+            dateObj = null;
+          }
+
+          let fyVal = '2026'; // Default to calendar year 2026 for backward compatibility
+          if (dateObj) {
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth(); // 0 = Jan, 11 = Dec
+            if (year < 2024) {
+              fyVal = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
+            } else {
+              // April (3) or later starts the financial year in the current year. Jan-Mar starts in previous year.
+              const fyStartYear = month >= 3 ? year : year - 1;
+              if (fyStartYear === 2025) {
+                fyVal = '2025';
+              } else {
+                fyVal = '2026';
+              }
+            }
+          }
+
+          return {
+            ...row,
+            parsedDate: dateObj,
+            fy: fyVal
+          };
+        });
         
         currentFilesState[i].data = parsedRows;
         // Trigger React re-render with the new chunk
@@ -345,14 +406,41 @@ function App() {
           normalizedRow[newKey] = row[key];
         }
 
-        const rawDate = normalizedRow.date;
+        // Find the date field by searching for keys dynamically, giving absolute priority to "day"
+        let rawDate = undefined;
+        const dayKey = Object.keys(normalizedRow).find(k => k === 'day');
+        if (dayKey) {
+          rawDate = normalizedRow[dayKey];
+        }
+        if (rawDate === undefined) {
+          rawDate = normalizedRow.date;
+        }
+        if (rawDate === undefined) {
+          const dateKey = Object.keys(normalizedRow).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+          if (dateKey) {
+            rawDate = normalizedRow[dateKey];
+          }
+        }
+        const rawYear = normalizedRow.year; // Check for a separate 'year' column
+         
         let dateObj = null;
         if (rawDate) {
           if (rawDate instanceof Date) {
-            dateObj = rawDate;
+            dateObj = new Date(rawDate);
+            if (rawYear && !isNaN(rawYear)) {
+              dateObj.setFullYear(parseInt(rawYear));
+            }
           } else {
             try {
-              dateObj = new Date(rawDate);
+              let dateStr = rawDate.toString().trim();
+              if (rawYear && !isNaN(rawYear)) {
+                const yearStr = rawYear.toString().trim();
+                // If the year isn't already in the date string, append it
+                if (!dateStr.includes(yearStr)) {
+                  dateStr = `${dateStr} ${yearStr}`;
+                }
+              }
+              dateObj = new Date(dateStr);
               if (isNaN(dateObj.getTime())) dateObj = null;
             } catch {
               dateObj = null;
@@ -366,10 +454,26 @@ function App() {
           normalizedRow.monthName = monthNames[dateObj.getMonth()];
           const day = dateObj.getDate().toString().padStart(2, '0');
           normalizedRow.formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
+          
+          // Classify calendar Year dynamically
+          const year = dateObj.getFullYear();
+          const month = dateObj.getMonth(); // 0 = Jan, 11 = Dec
+          if (year < 2024) {
+            normalizedRow.fy = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
+          } else {
+            // April (3) or later starts the financial year in the current year. Jan-Mar starts in previous year.
+            const fyStartYear = month >= 3 ? year : year - 1;
+            if (fyStartYear === 2025) {
+              normalizedRow.fy = '2025';
+            } else {
+              normalizedRow.fy = '2026';
+            }
+          }
         } else {
           normalizedRow.parsedDate = null;
           normalizedRow.monthName = 'Unknown';
           normalizedRow.formattedDate = 'Unknown';
+          normalizedRow.fy = 'FY26-27'; // Default
         }
 
         const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
@@ -441,6 +545,10 @@ function App() {
     const categories = new Set();
 
     data.forEach(row => {
+      // Dynamic cascading based on Financial Year
+      const rowFY = row.fy || 'FY26-27';
+      if (selectedFY !== 'All' && rowFY !== selectedFY) return;
+
       months.add(row.monthName || 'Unknown');
       
       // Cascading logic: Only add dates that match the selected month
@@ -475,7 +583,12 @@ function App() {
       channels: Array.from(channels).sort(),
       categories: Array.from(categories).sort()
     };
-  }, [data, selectedMonth]);
+  }, [data, selectedMonth, selectedFY]);
+
+  const goalsMonths = useMemo(() => [
+    "April", "May", "June", "July", "August", "September", "October", "November", "December",
+    "January", "February", "March"
+  ], []);
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
@@ -484,7 +597,9 @@ function App() {
       const division = row.division || 'Unknown';
       const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const fy = row.fy || 'FY26-27';
 
+      if (selectedFY !== 'All' && fy !== selectedFY) return false;
       if (selectedMonth !== 'All' && month !== selectedMonth) return false;
       if (selectedDate !== 'All' && date !== selectedDate) return false;
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
@@ -493,7 +608,7 @@ function App() {
 
       return true;
     });
-  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannel, selectedCategory]);
+  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannel, selectedCategory, selectedFY]);
 
   const metrics = useMemo(() => {
     if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0 };
@@ -791,7 +906,11 @@ function App() {
     let actualApparel = 0;
     let actualFootwear = 0;
     
-    const monthData = selectedMonth === 'All' ? data : data.filter(row => row.monthName === selectedMonth);
+    const monthData = data.filter(row => {
+      if (row.fy !== '2026') return false;
+      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return false;
+      return true;
+    });
 
     monthData.forEach(row => {
       const val = row.priceVal;
@@ -887,19 +1006,31 @@ function App() {
   );
 };
 
-const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
-    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
-    const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
-  
-    if (percent < 0.05) return null;
-  
-    return (
-      <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize="13" fontWeight="600">
-        {`${(percent * 100).toFixed(0)}%`}
-      </text>
-    );
-  };
+const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) => {
+  const RADIAN = Math.PI / 180;
+  // Position label 25px outside the outer radius for clear alignment
+  const radius = outerRadius + 25;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+  const textAnchor = x > cx ? 'start' : 'end';
+
+  if (percent < 0.01) return null;
+
+  return (
+    <text 
+      x={x} 
+      y={y} 
+      fill="var(--text-primary)" 
+      textAnchor={textAnchor} 
+      dominantBaseline="central" 
+      fontSize="12" 
+      fontWeight="700"
+    >
+      {`${name.toUpperCase()}: ${(percent * 100).toFixed(1)}%`}
+    </text>
+  );
+};
 
   if (!session || (loginRole === 'user' && otpStep)) {
     return (
@@ -953,7 +1084,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </div>
 
-        {/* Dyno Logo - Top Left */}
+        {/* Purple United Kids Logo - Top Left */}
         <div 
           onClick={() => window.location.reload()}
           style={{
@@ -969,18 +1100,18 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           }}
         >
           <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            background: 'var(--accent-color)',
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: 'var(--accent-gradient)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 0 12px rgba(163, 230, 53, 0.5)',
+            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)',
           }}>
-            <Activity size={20} color="#000" />
+            <Activity size={22} color="#fff" />
           </div>
-          <span style={{ fontWeight: 800, fontSize: '1.4rem', color: 'var(--text-primary)', letterSpacing: '0.05em' }}>Dyno</span>
+          <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>Purple United<br/><span style={{ color: 'var(--accent-color)', fontSize: '0.9rem' }}>Kids</span></span>
         </div>
         <div style={{ 
           position: 'absolute', 
@@ -999,14 +1130,14 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             width: '44px',
             height: '44px',
             borderRadius: 'var(--radius-sm)',
-            background: 'var(--accent-color)',
+            background: 'var(--accent-gradient)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#000',
+            color: '#fff',
             fontWeight: 900,
             fontSize: '1.2rem',
-            boxShadow: '0 0 15px rgba(163, 230, 53, 0.4)',
+            boxShadow: '0 0 15px rgba(139, 92, 246, 0.5)',
           }}>
             MN
           </div>
@@ -1016,7 +1147,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           
           <div className="auth-form-container">
               <div className="auth-header">
-                <h2>Welcome to Dyno</h2>
+                <h2>Welcome to<br/>Purple United Kids</h2>
                 <p>
                   {otpStep 
                     ? 'Enter the 6-digit OTP sent to your registered email.' 
@@ -1143,7 +1274,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Activity className="brand-icon" size={28} />
-              Dyno
+              Purple United Kids
             </div>
             <button 
               className="mobile-menu-btn" 
@@ -1224,14 +1355,14 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               width: '44px',
               height: '44px',
               borderRadius: 'var(--radius-sm)',
-              background: 'var(--accent-color)',
+              background: 'var(--accent-gradient)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#000',
+              color: '#fff',
               fontWeight: 900,
               fontSize: '1.2rem',
-              boxShadow: '0 0 15px rgba(163, 230, 53, 0.4)',
+              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
             }}>
               MN
             </div>
@@ -1350,17 +1481,21 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {/* Global Filters */}
             {activePage !== 'raw_files' && activePage !== 'growth' && (
               <div className="filters-container">
-                {activePage === 'goals' && (
+                {activePage !== 'goals' && (
                   <CustomSelect 
                     value={selectedFY} 
-                    options={['FY26-27', 'FY27-28']} 
-                    onChange={setSelectedFY} 
-                    placeholder="Select FY" 
+                    options={['2025', '2026']} 
+                    onChange={(val) => {
+                      setSelectedFY(val);
+                      setSelectedMonth('All');
+                      setSelectedDate('All');
+                    }} 
+                    placeholder="Select Year" 
                   />
                 )}
                 <CustomSelect 
                   value={selectedMonth} 
-                  options={filterOptions.months} 
+                  options={activePage === 'goals' ? goalsMonths : filterOptions.months} 
                   onChange={(val) => {
                     setSelectedMonth(val);
                     setSelectedDate('All'); // Reset date filter
@@ -1704,21 +1839,43 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                data={chartsData.divisionData}
                                cx="50%"
                                cy="50%"
-                               innerRadius={50}
-                               outerRadius={110}
+                               innerRadius={45}
+                               outerRadius={90}
                                paddingAngle={5}
                                dataKey="value"
-                               labelLine={false}
-                               label={renderCustomizedLabel}
                                activeShape={renderActiveShape}
                                style={{ cursor: 'pointer' }}
                              >
-                               {chartsData.divisionData.map((entry, index) => (
-                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                               ))}
+                               {chartsData.divisionData.map((entry, index) => {
+                                 const name = (entry.name || '').toLowerCase();
+                                 const isFootwear = name.includes('footwear');
+                                 // Footwear = Vibrant Green, Apparel = Vibrant Orchid Purple
+                                 const fill = isFootwear ? '#00f2c4' : '#ba54f5';
+                                 return <Cell key={`cell-${index}`} fill={fill} />;
+                               })}
                              </Pie>
                             <Tooltip content={<CustomTooltip />} cursor={false} />
-                            <Legend wrapperStyle={{ color: 'var(--text-primary)' }} />
+                            <Legend 
+                              formatter={(value) => {
+                                const totalDivisionVal = chartsData.divisionData ? chartsData.divisionData.reduce((sum, d) => sum + d.value, 0) : 0;
+                                const item = chartsData.divisionData ? chartsData.divisionData.find(d => d.name.toLowerCase() === value.toLowerCase()) : null;
+                                const pct = totalDivisionVal > 0 && item ? ((item.value / totalDivisionVal) * 100).toFixed(1) : '0.0';
+                                return (
+                                  <span style={{ 
+                                    color: '#ffffff', 
+                                    fontSize: '18px', 
+                                    fontWeight: '800', 
+                                    marginLeft: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em'
+                                  }}>
+                                    {value}: {pct}%
+                                  </span>
+                                );
+                              }}
+                              iconSize={14}
+                              wrapperStyle={{ paddingTop: '1.5rem' }}
+                            />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>
@@ -1927,17 +2084,17 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {activePage === 'goals' && (
               <div className="dashboard-content">
                 <div className="card" style={{ marginBottom: '2rem', textAlign: 'center', padding: '2rem' }}>
-                  <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Target vs Achievement</h2>
-                  <p style={{ color: 'var(--text-secondary)' }}>Comparing actual performance against goals for <strong>{selectedMonth}</strong> ({selectedFY})</p>
+                  <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Target vs Achievement For FY 2026-2027</h2>
+                  <p style={{ color: 'var(--text-secondary)' }}>
+                    Comparing actual performance against goals for <strong>{selectedMonth}</strong> ({
+                      selectedMonth === 'All' 
+                        ? 'FY 2026-2027' 
+                        : ['January', 'February', 'March'].includes(selectedMonth) ? '2027' : '2026'
+                    })
+                  </p>
                 </div>
 
-                {selectedFY === 'FY27-28' ? (
-                  <div className="empty-state" style={{ height: '300px' }}>
-                    <Target size={48} />
-                    <h2>Target Not set yet</h2>
-                    <p>Goals and targets for the financial year 2027-2028 have not been configured.</p>
-                  </div>
-                ) : goalMetrics ? (
+                {goalMetrics ? (
                   <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                     {/* Revenue Goal */}
                     <div className="card metric-card goal-card">
@@ -2083,7 +2240,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   </div>
 
                   </div>
-                ) : null}
+                ) : (
+                  <div className="empty-state" style={{ height: '300px' }}>
+                    <Target size={48} color="var(--accent-color)" />
+                    <h2>No Target</h2>
+                    <p style={{ color: 'var(--text-secondary)' }}>No target or goals have been configured for <strong>{selectedMonth}</strong> in this year.</p>
+                  </div>
+                )}
 
               </div>
             )}
