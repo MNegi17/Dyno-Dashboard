@@ -1093,25 +1093,21 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             left: '2rem',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.6rem',
+            gap: '0.8rem',
             cursor: 'pointer',
             zIndex: 100,
             textDecoration: 'none',
           }}
         >
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
-            background: 'var(--accent-gradient)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)',
-          }}>
-            <Activity size={22} color="#fff" />
-          </div>
-          <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)', letterSpacing: '-0.01em', lineHeight: 1.2 }}>Purple United<br/><span style={{ color: 'var(--accent-color)', fontSize: '0.9rem' }}>Kids</span></span>
+          <img 
+            src="/logo.png" 
+            alt="Purple United Kids" 
+            style={{ 
+              height: '45px', 
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 2px 8px rgba(137, 101, 224, 0.2))'
+            }} 
+          />
         </div>
         <div style={{ 
           position: 'absolute', 
@@ -1272,9 +1268,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             style={{ cursor: 'pointer' }}
             title="Go to Dashboard"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Activity className="brand-icon" size={28} />
-              Purple United Kids
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.25rem 0' }}>
+              <img 
+                src="/logo.png" 
+                alt="Purple United Kids" 
+                style={{ 
+                  height: '35px', 
+                  objectFit: 'contain'
+                }} 
+              />
             </div>
             <button 
               className="mobile-menu-btn" 
