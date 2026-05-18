@@ -7,6 +7,37 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu } from 'lucide-react';
 import { supabase } from './supabaseClient';
+
+const GlowingLogoIcon = ({ size = 36 }) => {
+  return (
+    <div 
+      className="glowing-logo-init"
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        filter: 'none',
+        cursor: 'pointer',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
+    >
+      <img 
+        src="/logo-icon.png" 
+        alt="Purple United Kids" 
+        style={{
+          maxWidth: '100%',
+          maxHeight: '100%',
+          objectFit: 'contain',
+          pointerEvents: 'none',
+          display: 'block'
+        }} 
+      />
+    </div>
+  );
+};
+
 const COLORS = ['#ba54f5', '#1d8cf8', '#00f2c4', '#ff8d72', '#fd5d93', '#8965e0'];
 const GOALS = {
   "April": { revenue: 23100000, asp: 800, units: 28875, apparel: 17325, footwear: 11550 },
@@ -1119,27 +1150,32 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           right: '2rem', 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '0.75rem',
+          gap: '1rem',
           zIndex: 100
         }}>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Manan</div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>© 2026 Manan. All rights reserved.</div>
+            <div style={{ 
+              fontWeight: 800, 
+              fontSize: '1.05rem',
+              letterSpacing: '0.03em',
+              color: 'var(--text-primary)',
+              lineHeight: 1.2
+            }}>
+              Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
+            </div>
           </div>
           <div style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--accent-gradient)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#fff',
-            fontWeight: 900,
-            fontSize: '1.2rem',
-            boxShadow: '0 0 15px rgba(139, 92, 246, 0.5)',
+            width: '54px',
+            height: '54px',
+            borderRadius: '12px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.07)',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
           }}>
-            MN
+            <GlowingLogoIcon size={36} />
           </div>
         </div>
         <div className="auth-card">
@@ -1346,25 +1382,30 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             </h1>
             <p>Real-time insights from your daily reports</p>
           </div>
-          <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>Manan</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>© 2026 Manan. All rights reserved.</div>
+              <div style={{ 
+                fontWeight: 800, 
+                fontSize: '1.05rem',
+                letterSpacing: '0.03em',
+                color: 'var(--text-primary)',
+                lineHeight: 1.2
+              }}>
+                Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
+              </div>
             </div>
             <div style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--accent-gradient)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#fff',
-              fontWeight: 900,
-              fontSize: '1.2rem',
-              boxShadow: '0 4px 14px rgba(124, 58, 237, 0.35)',
+              width: '54px',
+              height: '54px',
+              borderRadius: '12px',
+              background: 'rgba(255, 255, 255, 0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.07)',
+              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
             }}>
-              MN
+              <GlowingLogoIcon size={36} />
             </div>
           </div>
         </header>
@@ -2252,6 +2293,43 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             )}
           </div>
         )}
+        
+        {/* Special Premium Footer Section */}
+        <footer style={{
+          marginTop: '4rem',
+          padding: '2rem 0 1rem 0',
+          borderTop: '1px solid var(--card-border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          color: 'var(--text-secondary)',
+          fontSize: '0.85rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span>Developed with ❤️ by</span>
+            <span style={{ 
+              fontWeight: 700, 
+              color: '#ffffff',
+              background: 'linear-gradient(135deg, #ba54f5, #e14eca)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              letterSpacing: '0.05em'
+            }}>MANAN</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <span>© 2026 Manan. All rights reserved.</span>
+            <span style={{ opacity: 0.3 }}>|</span>
+            <span style={{ 
+              color: 'var(--accent-color)', 
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              fontSize: '0.75rem',
+              letterSpacing: '0.1em'
+            }}>Premium Business Analytics</span>
+          </div>
+        </footer>
       </main>
     </div>
   );

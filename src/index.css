@@ -411,13 +411,12 @@ input:focus {
 
 .metric-icon {
   color: var(--accent-color);
-  background: rgba(186, 84, 245, 0.1); /* Gorgeous transparent orchid accent background */
-  padding: 0.85rem;
-  border-radius: var(--radius-md);
+  background: transparent;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 2px 4px rgba(186, 84, 245, 0.2));
+  filter: drop-shadow(0 0 8px rgba(186, 84, 245, 0.8)) drop-shadow(0 0 2px rgba(186, 84, 245, 0.45));
 }
 
 /* Animations */
@@ -1354,4 +1353,10 @@ tr:hover td {
 
 .suggestion-item:last-child {
   border-bottom: none;
+}
+
+/* Glowing Logo Icon Hover Style */
+.glowing-logo-init:hover {
+  transform: scale(1.08) rotate(1deg);
+  filter: drop-shadow(0 0 11px rgba(157, 78, 221, 0.75)) !important;
 }
