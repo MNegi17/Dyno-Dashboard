@@ -1084,7 +1084,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </div>
 
-        {/* Purple United Kids Logo - Top Left */}
+        {/* Dyno Logo - Top Left */}
         <div 
           onClick={() => window.location.reload()}
           style={{
@@ -1093,21 +1093,25 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             left: '2rem',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.8rem',
+            gap: '0.6rem',
             cursor: 'pointer',
             zIndex: 100,
             textDecoration: 'none',
           }}
         >
-          <img 
-            src="/logo.png" 
-            alt="Purple United Kids" 
-            style={{ 
-              height: '45px', 
-              objectFit: 'contain',
-              filter: 'drop-shadow(0 2px 8px rgba(137, 101, 224, 0.2))'
-            }} 
-          />
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '10px',
+            background: 'var(--accent-gradient)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)',
+          }}>
+            <Activity size={22} color="#fff" />
+          </div>
+          <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--text-primary)', letterSpacing: '0.05em', lineHeight: 1.2 }}>DYNO</span>
         </div>
         <div style={{ 
           position: 'absolute', 
@@ -1143,7 +1147,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           
           <div className="auth-form-container">
               <div className="auth-header">
-                <h2>Welcome to<br/>Purple United Kids</h2>
+                <h2>Welcome to<br/>Dyno Dashboard</h2>
                 <p>
                   {otpStep 
                     ? 'Enter the 6-digit OTP sent to your registered email.' 
@@ -1268,15 +1272,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             style={{ cursor: 'pointer' }}
             title="Go to Dashboard"
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.25rem 0' }}>
-              <img 
-                src="/logo.png" 
-                alt="Purple United Kids" 
-                style={{ 
-                  height: '35px', 
-                  objectFit: 'contain'
-                }} 
-              />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Activity className="brand-icon" size={26} color="var(--accent-color)" />
+              <span style={{ fontWeight: 800, fontSize: '1.25rem', color: '#fff', letterSpacing: '0.05em' }}>DYNO</span>
             </div>
             <button 
               className="mobile-menu-btn" 
