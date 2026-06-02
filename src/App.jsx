@@ -233,90 +233,134 @@ function App() {
   const startBackgroundDownload = async (files) => {
     setDownloadProgress({ active: true, current: 0, total: files.length });
     
-    // We will build up the files array as they arrive
     let currentFilesState = [...files];
-
-    for (let i = 0; i < files.length; i++) {
-      const fileId = files[i].id;
-      const { data, error } = await supabase.from('uploaded_files').select('data').eq('id', fileId).single();
-      
-      if (!error && data && data.data) {
-        // Rehydrate dates and classify Financial Year (FY) dynamically
-        const parsedRows = data.data.map(row => {
-          let dateObj = null;
-          const rawYear = row.year; // Check for a separate 'year' column
-          if (row.parsedDate) {
-            dateObj = new Date(row.parsedDate);
-            if (rawYear && !isNaN(rawYear)) {
-              dateObj.setFullYear(parseInt(rawYear));
-            }
-          } else {
-            // Find the date field by searching for keys dynamically, giving absolute priority to "day"
-            let rawDateVal = undefined;
-            const dayKey = Object.keys(row).find(k => k === 'day');
-            if (dayKey) {
-              rawDateVal = row[dayKey];
-            }
-            if (rawDateVal === undefined) {
-              rawDateVal = row.date;
-            }
-            if (rawDateVal === undefined) {
-              const dateKey = Object.keys(row).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
-              if (dateKey) {
-                rawDateVal = row[dateKey];
-              }
-            }
-            if (rawDateVal) {
-              try {
-                let dateStr = rawDateVal.toString().trim();
+    let completedCount = 0;
+    
+    // Concurrency queue
+    const queue = files.map((file, index) => ({ file, index }));
+    const limit = 6; // Maximum concurrent requests
+    
+    const worker = async () => {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        if (!item) continue;
+        const { file, index } = item;
+        
+        try {
+          const { data, error } = await supabase
+            .from('uploaded_files')
+            .select('data')
+            .eq('id', file.id)
+            .single();
+            
+          if (!error && data && data.data) {
+            // Rehydrate dates and classify Financial Year (FY) dynamically
+            const parsedRows = data.data.map(row => {
+              let dateObj = null;
+              const rawYear = row.year;
+              if (row.parsedDate) {
+                dateObj = new Date(row.parsedDate);
                 if (rawYear && !isNaN(rawYear)) {
-                  const yearStr = rawYear.toString().trim();
-                  // If the year isn't already in the date string, append it
-                  if (!dateStr.includes(yearStr)) {
-                    dateStr = `${dateStr} ${yearStr}`;
+                  dateObj.setFullYear(parseInt(rawYear));
+                }
+              } else {
+                let rawDateVal = undefined;
+                const dayKey = Object.keys(row).find(k => k === 'day');
+                if (dayKey) {
+                  rawDateVal = row[dayKey];
+                }
+                if (rawDateVal === undefined) {
+                  rawDateVal = row.date;
+                }
+                if (rawDateVal === undefined) {
+                  const dateKey = Object.keys(row).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+                  if (dateKey) {
+                    rawDateVal = row[dateKey];
                   }
                 }
-                dateObj = new Date(dateStr);
-              } catch {
+                if (rawDateVal) {
+                  try {
+                    let dateStr = rawDateVal.toString().trim();
+                    if (rawYear && !isNaN(rawYear)) {
+                      const yearStr = rawYear.toString().trim();
+                      if (!dateStr.includes(yearStr)) {
+                        dateStr = `${dateStr} ${yearStr}`;
+                      }
+                    }
+                    dateObj = new Date(dateStr);
+                  } catch {
+                    dateObj = null;
+                  }
+                }
+              }
+              if (dateObj && isNaN(dateObj.getTime())) {
                 dateObj = null;
               }
-            }
-          }
-          if (dateObj && isNaN(dateObj.getTime())) {
-            dateObj = null;
-          }
 
-          let fyVal = '2026'; // Default to calendar year 2026 for backward compatibility
-          if (dateObj) {
-            const year = dateObj.getFullYear();
-            const month = dateObj.getMonth(); // 0 = Jan, 11 = Dec
-            if (year < 2024) {
-              fyVal = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
-            } else {
-              // April (3) or later starts the financial year in the current year. Jan-Mar starts in previous year.
-              const fyStartYear = month >= 3 ? year : year - 1;
-              if (fyStartYear === 2025) {
-                fyVal = '2025';
-              } else {
-                fyVal = '2026';
+              let monthName = row.monthName;
+              let formattedDate = row.formattedDate;
+              if (dateObj && (!monthName || monthName === 'Unknown')) {
+                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                monthName = monthNames[dateObj.getMonth()];
+                const day = dateObj.getDate().toString().padStart(2, '0');
+                formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
               }
-            }
-          }
 
-          return {
-            ...row,
-            parsedDate: dateObj,
-            fy: fyVal
-          };
-        });
-        
-        currentFilesState[i].data = parsedRows;
-        // Trigger React re-render with the new chunk
-        setUploadedFiles([...currentFilesState]);
+              let fyVal = '2026';
+              if (row.fy) {
+                fyVal = row.fy;
+              } else if (dateObj) {
+                const year = dateObj.getFullYear();
+                const month = dateObj.getMonth();
+                if (year < 2024) {
+                  fyVal = '2026';
+                } else {
+                  const fyStartYear = month >= 3 ? year : year - 1;
+                  if (fyStartYear === 2025) {
+                    fyVal = '2025';
+                  } else {
+                    fyVal = '2026';
+                  }
+                }
+              }
+
+              // row.priceVal is set by migration & new uploads; fall back to raw columns for any legacy records
+              const priceVal = row.priceVal ?? row.new_sp ?? row.newsp ?? row.total_selling_price ?? row.totalsellingprice ?? row.price ?? 0;
+              const parsedPriceVal = parseFloat(priceVal) || 0;
+
+              return {
+                parsedDate: dateObj,
+                monthName: monthName || 'Unknown',
+                formattedDate: formattedDate || 'Unknown',
+                fy: fyVal,
+                priceVal: parsedPriceVal,
+                division: row.division || 'Unknown',
+                channel_name: row.channel_name || row.channelname || row.channel || 'Unknown',
+                categories: row.categories || row.category || 'Unknown',
+                item_color: row.item_color || row.itemcolor || row.barcode || 'Unknown',
+                item_type_size: row.item_type_size || row.itemtypesize || row.size || 'Unknown'
+              };
+            });
+            
+            currentFilesState[index].data = parsedRows;
+            
+            // Trigger React re-render as files arrive
+            setUploadedFiles([...currentFilesState]);
+          } else if (error) {
+            console.error(`Error fetching file ${file.id}:`, error);
+          }
+        } catch (err) {
+          console.error(`Caught error fetching file ${file.id}:`, err);
+        } finally {
+          completedCount++;
+          setDownloadProgress(prev => ({ ...prev, current: completedCount }));
+        }
       }
-      
-      setDownloadProgress({ active: true, current: i + 1, total: files.length });
-    }
+    };
+    
+    // Start worker pool
+    const workers = Array(limit).fill(null).map(() => worker());
+    await Promise.all(workers);
     
     setDownloadProgress({ active: false, current: 0, total: 0 });
   };
@@ -479,38 +523,48 @@ function App() {
           }
         }
 
+        let monthName = 'Unknown';
+        let formattedDate = 'Unknown';
+        let fyVal = '2026';
+
         if (dateObj) {
           const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-          normalizedRow.parsedDate = dateObj;
-          normalizedRow.monthName = monthNames[dateObj.getMonth()];
+          monthName = monthNames[dateObj.getMonth()];
           const day = dateObj.getDate().toString().padStart(2, '0');
-          normalizedRow.formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
+          formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
           
           // Classify calendar Year dynamically
           const year = dateObj.getFullYear();
           const month = dateObj.getMonth(); // 0 = Jan, 11 = Dec
           if (year < 2024) {
-            normalizedRow.fy = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
+            fyVal = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
           } else {
             // April (3) or later starts the financial year in the current year. Jan-Mar starts in previous year.
             const fyStartYear = month >= 3 ? year : year - 1;
             if (fyStartYear === 2025) {
-              normalizedRow.fy = '2025';
+              fyVal = '2025';
             } else {
-              normalizedRow.fy = '2026';
+              fyVal = '2026';
             }
           }
-        } else {
-          normalizedRow.parsedDate = null;
-          normalizedRow.monthName = 'Unknown';
-          normalizedRow.formattedDate = 'Unknown';
-          normalizedRow.fy = 'FY26-27'; // Default
         }
 
         const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
-        normalizedRow.priceVal = parseFloat(priceVal) || 0;
+        const parsedPriceVal = parseFloat(priceVal) || 0;
 
-        return normalizedRow;
+        // Keep only minimal columns required by the dashboard
+        return {
+          parsedDate: dateObj ? dateObj.toISOString() : null,
+          monthName,
+          formattedDate,
+          fy: fyVal,
+          priceVal: parsedPriceVal,
+          division: normalizedRow.division || 'Unknown',
+          channel_name: normalizedRow.channel_name || normalizedRow.channelname || normalizedRow.channel || 'Unknown',
+          categories: normalizedRow.categories || normalizedRow.category || 'Unknown',
+          item_color: normalizedRow.item_color || normalizedRow.itemcolor || normalizedRow.barcode || 'Unknown',
+          item_type_size: normalizedRow.item_type_size || normalizedRow.itemtypesize || normalizedRow.size || 'Unknown'
+        };
       });
 
       const chunkSize = 1000;
