@@ -55,6 +55,45 @@ const GOALS = {
   "All": { revenue: 404330160.87, asp: 850, units: 475683, apparel: 283289, footwear: 188860 }
 };
 
+const normalizeChannelName = (rawName) => {
+  if (!rawName) return 'Unknown';
+  const name = rawName.toString().trim();
+  const upper = name.toUpperCase();
+  
+  if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL') {
+    return 'MYNTRA';
+  }
+  if (upper === 'FIRSTCRY') {
+    return 'FIRSTCRY';
+  }
+  if (upper === 'D2C SHOPIFY' || upper === 'SHOPIFY') {
+    return 'D2C';
+  }
+  if (upper.includes('COCOBLU_ONLINE') || upper.includes('COCOBLU_ON') || upper === 'PUSPL _COCOBLU_ON') {
+    return 'AMAZON_COCOBLU';
+  }
+  if (upper === 'AMAZON_FLEX_API' || upper === 'AMAZON_IN_API') {
+    return 'AMAZON';
+  }
+  if (upper === 'AJIO_DROPSHIP' || upper === 'AJIO DROPSHIP' || upper === 'AJIO_DRPSHP') {
+    return 'AJIO';
+  }
+  if (upper.includes('FLIPKART_ONLINE') || upper.includes('FLIPKART_ON') || upper === 'PUSPL _FLIPKART_ON') {
+    return 'FLIPKART';
+  }
+  if (upper.includes('NYKAA_ONLINE') || upper.includes('NYKAA_ONLIN') || upper === 'PUSPL _NYKAA_ONLIN') {
+    return 'NYKAA';
+  }
+  if (upper === 'AMAZON_FBA') {
+    return 'AMAZON_FBA';
+  }
+  if (upper === 'MYNTRA_SJIT') {
+    return 'MYNTRA_SJIT';
+  }
+  
+  return name;
+};
+
 const getChannelColor = (channelName) => {
   if (!channelName) return COLORS[0];
   const name = channelName.toLowerCase();
@@ -112,6 +151,94 @@ const CustomSelect = ({ value, options, onChange, placeholder }) => {
   );
 };
 
+const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleToggleOption = (opt) => {
+    if (values.includes(opt)) {
+      onChange(values.filter(v => v !== opt));
+    } else {
+      onChange([...values, opt]);
+    }
+  };
+
+  const isAllSelected = !values || values.length === 0;
+
+  const displayValue = isAllSelected 
+    ? placeholder 
+    : values.length === 1 
+      ? values[0] 
+      : `${values.length} Selected`;
+
+  return (
+    <div className="custom-select-wrapper" ref={dropdownRef}>
+      <div 
+        className={`custom-select-trigger ${isOpen ? 'open' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span style={{ 
+          whiteSpace: 'nowrap', 
+          overflow: 'hidden', 
+          textOverflow: 'ellipsis', 
+          maxWidth: '180px',
+          display: 'block' 
+        }}>
+          {displayValue}
+        </span>
+        <ChevronDown size={16} />
+      </div>
+      
+      {isOpen && (
+        <div className="custom-select-options" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+          <div 
+            className={`custom-select-option ${isAllSelected ? 'selected' : ''}`}
+            onClick={() => { onChange([]); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <input 
+              type="checkbox" 
+              checked={isAllSelected} 
+              readOnly 
+              style={{ accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+            />
+            <span>{placeholder}</span>
+          </div>
+          {options.map(opt => {
+            const isSelected = values.includes(opt);
+            return (
+              <div 
+                key={opt}
+                className={`custom-select-option ${isSelected ? 'selected' : ''}`}
+                onClick={() => { handleToggleOption(opt); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <input 
+                  type="checkbox" 
+                  checked={isSelected} 
+                  readOnly 
+                  style={{ accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '0.9rem' }}>{opt}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Determine role from email — only the admin email gets admin access
 const getRoleFromEmail = (email) => {
   return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
@@ -150,12 +277,21 @@ function App() {
   const [productSearch, setProductSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
 
+  // Sorting & Table Filter States
+  const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
+  const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
+  const [activeTableFilterDropdown, setActiveTableFilterDropdown] = useState(null); // 'units' or 'returns' or null
+
+  // Second Product Returns Search States
+  const [productSearchReturn, setProductSearchReturn] = useState('');
+  const [selectedProductReturn, setSelectedProductReturn] = useState(null);
+
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState('All');
   const [selectedDate, setSelectedDate] = useState('All');
   const [selectedDivision, setSelectedDivision] = useState('All');
-  const [selectedChannel, setSelectedChannel] = useState('All');
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedChannels, setSelectedChannels] = useState([]);
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedFY, setSelectedFY] = useState('2026');
 
   // Guard: ensures fetchData is called at most once per session lifecycle
@@ -163,6 +299,14 @@ function App() {
   // Temporary storage for user credentials during OTP verification
   const pendingEmailRef = useRef('');
   const pendingPassRef = useRef('');
+
+  useEffect(() => {
+    const handleGlobalClick = () => {
+      setActiveTableFilterDropdown(null);
+    };
+    document.addEventListener('click', handleGlobalClick);
+    return () => document.removeEventListener('click', handleGlobalClick);
+  }, []);
 
   useEffect(() => {
     // 1. Initialize from localStorage immediately (on page load/reload)
@@ -255,7 +399,27 @@ function App() {
             
           if (!error && data && data.data) {
             // Rehydrate dates and classify Financial Year (FY) dynamically
+            const isRet = (file.name || '').startsWith('[RETURN]');
             const parsedRows = data.data.map(row => {
+              if (isRet || row.is_return) {
+                let dateObj = null;
+                if (row.parsedDate) {
+                  dateObj = new Date(row.parsedDate);
+                }
+                return {
+                  parsedDate: dateObj,
+                  monthName: row.monthName || 'Unknown',
+                  formattedDate: row.formattedDate || 'Unknown',
+                  fy: row.fy || '2026',
+                  channel_name: normalizeChannelName(row.channel_name),
+                  item_color: row.item_color || 'Unknown',
+                  return_qty: parseFloat(row.return_qty) || 0,
+                  division: row.division || 'Unknown',
+                  categories: row.categories || 'Unknown',
+                  is_return: true
+                };
+              }
+
               let dateObj = null;
               const rawYear = row.year;
               if (row.parsedDate) {
@@ -335,7 +499,7 @@ function App() {
                 fy: fyVal,
                 priceVal: parsedPriceVal,
                 division: row.division || 'Unknown',
-                channel_name: row.channel_name || row.channelname || row.channel || 'Unknown',
+                channel_name: normalizeChannelName(row.channel_name || row.channelname || row.channel),
                 categories: row.categories || row.category || 'Unknown',
                 item_color: row.item_color || row.itemcolor || row.barcode || 'Unknown',
                 item_type_size: row.item_type_size || row.itemtypesize || row.size || 'Unknown'
@@ -459,7 +623,15 @@ function App() {
   };
 
   const data = useMemo(() => {
-    return uploadedFiles.flatMap(file => file.data);
+    return uploadedFiles
+      .filter(file => !(file.name || '').startsWith('[RETURN]'))
+      .flatMap(file => file.data);
+  }, [uploadedFiles]);
+
+  const returnData = useMemo(() => {
+    return uploadedFiles
+      .filter(file => (file.name || '').startsWith('[RETURN]'))
+      .flatMap(file => file.data);
   }, [uploadedFiles]);
 
   const handleFileUpload = (e) => {
@@ -560,7 +732,7 @@ function App() {
           fy: fyVal,
           priceVal: parsedPriceVal,
           division: normalizedRow.division || 'Unknown',
-          channel_name: normalizedRow.channel_name || normalizedRow.channelname || normalizedRow.channel || 'Unknown',
+          channel_name: normalizeChannelName(normalizedRow.channel_name || normalizedRow.channelname || normalizedRow.channel),
           categories: normalizedRow.categories || normalizedRow.category || 'Unknown',
           item_color: normalizedRow.item_color || normalizedRow.itemcolor || normalizedRow.barcode || 'Unknown',
           item_type_size: normalizedRow.item_type_size || normalizedRow.itemtypesize || normalizedRow.size || 'Unknown'
@@ -606,6 +778,168 @@ function App() {
         fetchData();
       } else {
         alert(`Error saving file to database: ${errorMessage}. If the file is too large, it partially uploaded.`);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleReturnUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const bstr = event.target.result;
+      const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const parsedData = XLSX.utils.sheet_to_json(ws);
+      
+      const normalizedData = parsedData.map(row => {
+        const normalizedRow = {};
+        for (const key in row) {
+          const newKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+          normalizedRow[newKey] = row[key];
+        }
+
+        let rawDate = normalizedRow.date_1; // check yellow-marked date column first
+        if (rawDate === undefined) {
+          rawDate = normalizedRow.date;
+        }
+        if (rawDate === undefined) {
+          const dayKey = Object.keys(normalizedRow).find(k => k === 'day');
+          if (dayKey) {
+            rawDate = normalizedRow[dayKey];
+          }
+        }
+        if (rawDate === undefined) {
+          const dateKey = Object.keys(normalizedRow).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+          if (dateKey) {
+            rawDate = normalizedRow[dateKey];
+          }
+        }
+
+        const rawYear = normalizedRow.year;
+         
+        let dateObj = null;
+        if (rawDate) {
+          if (rawDate instanceof Date) {
+            dateObj = new Date(rawDate);
+            if (rawYear && !isNaN(rawYear)) {
+              dateObj.setFullYear(parseInt(rawYear));
+            }
+          } else {
+            try {
+              let dateStr = rawDate.toString().trim();
+              if (rawYear && !isNaN(rawYear)) {
+                const yearStr = rawYear.toString().trim();
+                if (!dateStr.includes(yearStr)) {
+                  dateStr = `${dateStr} ${yearStr}`;
+                }
+              }
+              
+              if (!isNaN(dateStr) && parseFloat(dateStr) > 40000) {
+                dateObj = new Date((parseFloat(dateStr) - 25569) * 86400 * 1000);
+              } else {
+                dateObj = new Date(dateStr);
+              }
+              if (isNaN(dateObj.getTime())) dateObj = null;
+            } catch {
+              dateObj = null;
+            }
+          }
+        }
+
+        let monthName = normalizedRow.month || 'Unknown';
+        let formattedDate = 'Unknown';
+        let fyVal = '2026';
+
+        if (dateObj) {
+          const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+          monthName = monthNames[dateObj.getMonth()];
+          const day = dateObj.getDate().toString().padStart(2, '0');
+          formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
+          
+          const year = dateObj.getFullYear();
+          const month = dateObj.getMonth();
+          if (year < 2024) {
+            fyVal = '2026';
+          } else {
+            const fyStartYear = month >= 3 ? year : year - 1;
+            if (fyStartYear === 2025) {
+              fyVal = '2025';
+            } else {
+              fyVal = '2026';
+            }
+          }
+        } else if (typeof monthName === 'string') {
+          const monthClean = monthName.trim().toLowerCase();
+          const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+          const idx = monthNames.indexOf(monthClean);
+          if (idx !== -1) {
+            monthName = monthNames[idx].charAt(0).toUpperCase() + monthNames[idx].slice(1);
+          }
+        }
+
+        const returnQty = parseFloat(normalizedRow.qty || normalizedRow.return_qty || normalizedRow.returnqty || 1) || 1;
+        const rawChannel = normalizedRow.channel_entry || normalizedRow.channel_ledger || normalizedRow.channel || 'Unknown';
+        const channelName = normalizeChannelName(rawChannel);
+        const itemColor = normalizedRow.item_color || normalizedRow.product_sku_code || normalizedRow.sku || 'Unknown';
+        const divisionVal = normalizedRow.division || 'Unknown';
+        const categoryVal = normalizedRow.category || normalizedRow.categories || 'Unknown';
+
+        return {
+          parsedDate: dateObj ? dateObj.toISOString() : null,
+          monthName,
+          formattedDate,
+          fy: fyVal,
+          channel_name: channelName,
+          item_color: itemColor,
+          return_qty: returnQty,
+          division: divisionVal,
+          categories: categoryVal,
+          is_return: true
+        };
+      });
+
+      const chunkSize = 1000;
+      const chunks = [];
+      for (let i = 0; i < normalizedData.length; i += chunkSize) {
+        chunks.push(normalizedData.slice(i, i + chunkSize));
+      }
+
+      setIsLoading(true);
+      let success = true;
+      let errorMessage = "";
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const newFileEntry = {
+          name: chunks.length > 1 ? `[RETURN] ${file.name} (Part ${i + 1}/${chunks.length})` : `[RETURN] ${file.name}`,
+          record_count: chunk.length,
+          data: chunk
+        };
+
+        const { error } = await supabase.from('uploaded_files').insert([newFileEntry]);
+        if (error) {
+          console.error("Upload chunk error:", error);
+          success = false;
+          errorMessage = error.message;
+          break;
+        }
+        
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      setIsLoading(false);
+      e.target.value = null;
+
+      if (success) {
+        fetchData();
+      } else {
+        alert(`Error saving file to database: ${errorMessage}`);
       }
     };
     reader.readAsBinaryString(file);
@@ -688,15 +1022,34 @@ function App() {
       if (selectedMonth !== 'All' && month !== selectedMonth) return false;
       if (selectedDate !== 'All' && date !== selectedDate) return false;
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
-      if (selectedChannel !== 'All' && channel !== selectedChannel) return false;
-      if (selectedCategory !== 'All' && category !== selectedCategory) return false;
+      if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
+      if (selectedCategories.length > 0 && !selectedCategories.includes(category)) return false;
 
       return true;
     });
-  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannel, selectedCategory, selectedFY]);
+  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedFY]);
+
+  const filteredReturnData = useMemo(() => {
+    return returnData.filter(row => {
+      const month = row.monthName || 'Unknown';
+      const date = row.formattedDate || 'Unknown';
+      const channel = row.channel_name || 'Unknown';
+      const division = row.division || 'Unknown';
+      const category = row.categories || row.category || 'Unknown';
+      const fy = row.fy || '2026';
+
+      if (selectedFY !== 'All' && fy !== selectedFY) return false;
+      if (selectedMonth !== 'All' && month !== selectedMonth) return false;
+      if (selectedDate !== 'All' && date !== selectedDate) return false;
+      if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
+      if (selectedDivision !== 'All' && division !== selectedDivision) return false;
+      if (selectedCategories.length > 0 && !selectedCategories.includes(category)) return false;
+      return true;
+    });
+  }, [returnData, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedFY]);
 
   const metrics = useMemo(() => {
-    if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0 };
+    if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0, totalReturns: 0, overallReturnPct: 0 };
 
     let totalSales = 0;
     let totalUnits = filteredData.length;
@@ -709,13 +1062,22 @@ function App() {
       categories.add(row.categories || row.category || 'Unknown');
     });
 
+    let totalReturns = 0;
+    filteredReturnData.forEach(row => {
+      totalReturns += row.return_qty;
+    });
+
+    const overallReturnPct = totalUnits > 0 ? (totalReturns / totalUnits) * 100 : 0;
+
     return {
       totalSales: totalSales.toFixed(2),
       totalUnits,
       uniqueChannels: channels.size,
-      uniqueCategories: categories.size
+      uniqueCategories: categories.size,
+      totalReturns,
+      overallReturnPct
     };
-  }, [filteredData]);
+  }, [filteredData, filteredReturnData]);
 
   const chartsData = useMemo(() => {
     if (!filteredData.length) return null;
@@ -776,6 +1138,15 @@ function App() {
   const skuAnalysisData = useMemo(() => {
     if (!filteredData.length) return [];
     
+    const returnMap = {};
+    filteredReturnData.forEach(row => {
+      const sku = row.item_color || 'Unknown';
+      if (!returnMap[sku]) {
+        returnMap[sku] = 0;
+      }
+      returnMap[sku] += row.return_qty;
+    });
+
     const skuMap = {};
     
     filteredData.forEach(row => {
@@ -796,8 +1167,23 @@ function App() {
     });
     
     return Object.values(skuMap)
-      .sort((a, b) => b.units - a.units);
-  }, [filteredData]);
+      .map(item => {
+        const returns = returnMap[item.sku] || 0;
+        const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
+        return {
+          ...item,
+          returns,
+          returnPct
+        };
+      })
+      .sort((a, b) => {
+        if (skuSortField === 'returns') {
+          return skuSortDirection === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+        } else {
+          return skuSortDirection === 'desc' ? b.units - a.units : a.units - b.units;
+        }
+      });
+  }, [filteredData, filteredReturnData, skuSortField, skuSortDirection]);
 
   const topInsights = useMemo(() => {
     if (!filteredData.length) return null;
@@ -924,13 +1310,13 @@ function App() {
   const productList = useMemo(() => {
     if (!data.length) return [];
     
-    // Filter data by selected month, date, and channel first if applicable
+    // Filter data by selected month, date, and channels first if applicable
     const filteredForList = data.filter(row => {
       if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return false;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return false;
-      if (selectedChannel !== 'All') {
+      if (selectedChannels.length > 0) {
         const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
-        if (channel !== selectedChannel) return false;
+        if (!selectedChannels.includes(channel)) return false;
       }
       return true;
     });
@@ -941,7 +1327,7 @@ function App() {
       if (p) products.add(p);
     });
     return Array.from(products).sort();
-  }, [data, selectedMonth, selectedDate]);
+  }, [data, selectedMonth, selectedDate, selectedChannels]);
 
   const productSizeData = useMemo(() => {
     if (!selectedProduct || !data.length) return null;
@@ -953,9 +1339,9 @@ function App() {
       // Apply Month, Date, and Channel filters to the specific product data
       if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
-      if (selectedChannel !== 'All') {
+      if (selectedChannels.length > 0) {
         const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
-        if (channel !== selectedChannel) return;
+        if (!selectedChannels.includes(channel)) return;
       }
 
       const p = row.item_color || row.itemcolor || row.barcode;
@@ -978,7 +1364,63 @@ function App() {
       totalUnits,
       topSize
     };
-  }, [selectedProduct, data, selectedMonth, selectedDate, selectedChannel]);
+  }, [selectedProduct, data, selectedMonth, selectedDate, selectedChannels]);
+
+  const productChannelReturnData = useMemo(() => {
+    if (!selectedProductReturn || !data.length) return null;
+    
+    const channelMap = {};
+    let totalUnits = 0;
+    let totalReturns = 0;
+
+    data.forEach(row => {
+      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
+      if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
+      if (selectedChannels.length > 0) {
+        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        if (!selectedChannels.includes(channel)) return;
+      }
+
+      const p = row.item_color || row.itemcolor || row.barcode;
+      if (p === selectedProductReturn) {
+        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        if (!channelMap[channel]) channelMap[channel] = { channel, units: 0, returns: 0 };
+        channelMap[channel].units += 1;
+        totalUnits += 1;
+      }
+    });
+
+    filteredReturnData.forEach(row => {
+      const p = row.item_color || 'Unknown';
+      if (p === selectedProductReturn) {
+        const channel = row.channel_name || 'Unknown';
+        const qty = row.return_qty || 1;
+        if (!channelMap[channel]) channelMap[channel] = { channel, units: 0, returns: 0 };
+        channelMap[channel].returns += qty;
+        totalReturns += qty;
+      }
+    });
+
+    const channels = Object.values(channelMap)
+      .map(item => {
+        const returnPct = item.units > 0 ? (item.returns / item.units) * 100 : 0;
+        return {
+          ...item,
+          value: item.returns,
+          returnPct
+        };
+      })
+      .sort((a, b) => b.returns - a.returns);
+
+    const overallReturnPct = totalUnits > 0 ? (totalReturns / totalUnits) * 100 : 0;
+
+    return {
+      channels,
+      totalUnits,
+      totalReturns,
+      overallReturnPct
+    };
+  }, [selectedProductReturn, data, filteredReturnData, selectedMonth, selectedDate, selectedChannels]);
 
   const goalMetrics = useMemo(() => {
     if (!data.length) return null;
@@ -1067,6 +1509,27 @@ function App() {
                 : `Revenue: ${formatCurrency(payload[0].payload.sales)}`}
             </p>
           )}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const ReturnsCustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      const returns = payload[0].payload.returns || 0;
+      const units = payload[0].payload.units || 0;
+      const returnPct = payload[0].payload.returnPct || 0;
+      
+      return (
+        <div className="custom-tooltip">
+          <p className="label">Size {label}</p>
+          <p className="value" style={{ color: payload[0].color || 'var(--accent-color)' }}>
+            {returns} Returns ({returnPct.toFixed(0)}%)
+          </p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+            Total Units Sold: {units}
+          </p>
         </div>
       );
     }
@@ -1650,20 +2113,38 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
         {activePage === 'raw_files' && userRole === 'admin' ? (
           <div className="dashboard-content">
-            <div className="card" style={{ marginBottom: '2rem' }}>
-              <div className="card-header">
-                <h3 className="card-title">Upload New File</h3>
+            <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', marginBottom: '2rem' }}>
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-header">
+                  <h3 className="card-title">Upload New Sales File</h3>
+                </div>
+                <div className="upload-btn-wrapper">
+                  <button className="upload-btn" disabled={isLoading}>
+                    <UploadCloud size={20} />
+                    {isLoading ? 'Uploading...' : 'Upload Excel / CSV'}
+                  </button>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} disabled={isLoading} />
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                  Push your daily sales report containing channels, pricing, dates, divisions, categories, and items.
+                </p>
               </div>
-              <div className="upload-btn-wrapper">
-                <button className="upload-btn" disabled={isLoading}>
-                  <UploadCloud size={20} />
-                  {isLoading ? 'Uploading...' : 'Upload Excel / CSV'}
-                </button>
-                <input type="file" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} disabled={isLoading} />
+
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-header">
+                  <h3 className="card-title">Upload Returns File</h3>
+                </div>
+                <div className="upload-btn-wrapper">
+                  <button className="upload-btn" disabled={isLoading} style={{ background: 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)' }}>
+                    <UploadCloud size={20} />
+                    {isLoading ? 'Uploading...' : 'Upload Returns Excel / CSV'}
+                  </button>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleReturnUpload} disabled={isLoading} />
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                  Push your customer returns report containing items, date_1, channel entry, qty, division, and category.
+                </p>
               </div>
-              <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
-                Push your daily sales report containing channels, pricing, dates, divisions, categories, and items.
-              </p>
             </div>
 
             <div className="card">
@@ -1682,6 +2163,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     <thead>
                       <tr>
                         <th>File Name</th>
+                        <th>Type</th>
                         <th>Date Pushed</th>
                         <th>Records</th>
                         <th>Status</th>
@@ -1689,31 +2171,42 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </tr>
                     </thead>
                     <tbody>
-                      {uploadedFiles.map((file) => (
-                        <tr key={file.id}>
-                          <td style={{ fontWeight: 600 }}>{file.name}</td>
-                          <td>
-                            {file.uploadDate.toLocaleDateString()} at {file.uploadDate.toLocaleTimeString()}
-                          </td>
-                          <td style={{ color: 'var(--accent-color)', fontWeight: 600 }}>{formatNumber(file.recordCount)}</td>
-                          <td style={{ fontSize: '0.85rem' }}>
-                            {file.data.length > 0 ? (
-                               <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>Loaded</span>
-                            ) : (
-                               <span style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>Syncing...</span>
-                            )}
-                          </td>
-                          <td>
-                            <button 
-                              className="delete-btn" 
-                              onClick={() => handleDeleteFile(file.id)}
-                              title="Remove file from dashboard"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {uploadedFiles.map((file) => {
+                        const isRet = (file.name || '').startsWith('[RETURN]');
+                        const displayName = isRet ? file.name.replace('[RETURN] ', '') : file.name;
+                        return (
+                          <tr key={file.id}>
+                            <td style={{ fontWeight: 600 }}>{displayName}</td>
+                            <td>
+                              {isRet ? (
+                                <span style={{ color: '#8965e0', background: 'rgba(137, 101, 224, 0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}>Returns</span>
+                              ) : (
+                                <span style={{ color: '#ba54f5', background: 'rgba(186, 84, 245, 0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}>Sales</span>
+                              )}
+                            </td>
+                            <td>
+                              {file.uploadDate.toLocaleDateString()} at {file.uploadDate.toLocaleTimeString()}
+                            </td>
+                            <td style={{ color: 'var(--accent-color)', fontWeight: 600 }}>{formatNumber(file.recordCount)}</td>
+                            <td style={{ fontSize: '0.85rem' }}>
+                              {file.data.length > 0 ? (
+                                 <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>Loaded</span>
+                              ) : (
+                                 <span style={{ color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)', padding: '2px 8px', borderRadius: '10px' }}>Syncing...</span>
+                              )}
+                            </td>
+                            <td>
+                              <button 
+                                className="delete-btn" 
+                                onClick={() => handleDeleteFile(file.id)}
+                                title="Remove file from dashboard"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1793,9 +2286,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 
                 {activePage !== 'insights' && activePage !== 'goals' && (
                   <>
-                    <CustomSelect value={selectedChannel} options={filterOptions.channels} onChange={setSelectedChannel} placeholder="All Channels" />
+                    <CustomMultiSelect values={selectedChannels} options={filterOptions.channels} onChange={setSelectedChannels} placeholder="All Channels" />
                     {activePage !== 'product_level' && (
-                      <CustomSelect value={selectedCategory} options={filterOptions.categories} onChange={setSelectedCategory} placeholder="All Categories" />
+                      <CustomMultiSelect values={selectedCategories} options={filterOptions.categories} onChange={setSelectedCategories} placeholder="All Categories" />
                     )}
                   </>
                 )}
@@ -2033,6 +2526,153 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </div>
                   </div>
                 )}
+
+                {/* Product Returns Search Section */}
+                <div className="card" style={{ marginBottom: '2rem', marginTop: '2rem' }}>
+                  <div className="card-header">
+                    <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Search size={20} color="var(--accent-color)" />
+                      Search Product (Returns)
+                    </h3>
+                  </div>
+                  <div className="search-box-container">
+                    <input 
+                      type="text" 
+                      className="auth-input" 
+                      style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+                      placeholder="Search Product for Returns"
+                      value={productSearchReturn}
+                      onChange={(e) => {
+                        setProductSearchReturn(e.target.value);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && productSearchReturn.trim()) {
+                          const exactMatch = productList.find(p => p === productSearchReturn);
+                          const caseMatch = productList.find(p => p.toLowerCase() === productSearchReturn.toLowerCase());
+                          const partialMatch = productList.find(p => p.toLowerCase().includes(productSearchReturn.toLowerCase()));
+                          
+                          const match = exactMatch || caseMatch || partialMatch;
+                          if (match) {
+                            setSelectedProductReturn(match);
+                            setProductSearchReturn(match);
+                          }
+                        }
+                      }}
+                    />
+                    {productSearchReturn && !selectedProductReturn && (
+                      <div className="search-suggestions">
+                        {productList
+                          .filter(p => p.toLowerCase().includes(productSearchReturn.toLowerCase()))
+                          .slice(0, 15)
+                          .map(p => (
+                            <div 
+                              key={p} 
+                              className="suggestion-item"
+                              onClick={() => {
+                                setSelectedProductReturn(p);
+                                setProductSearchReturn(p);
+                              }}
+                            >
+                              <Search size={14} style={{ opacity: 0.5 }} />
+                              {p}
+                            </div>
+                          ))}
+                        {productList.filter(p => p.toLowerCase().includes(productSearchReturn.toLowerCase())).length === 0 && (
+                          <div className="suggestion-item" style={{ color: 'var(--text-secondary)', cursor: 'default' }}>
+                            No products found matching "{productSearchReturn}"
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {selectedProductReturn && productChannelReturnData && (
+                  <div className="card" style={{ position: 'relative', marginBottom: '2rem' }}>
+                    <button 
+                      onClick={() => { setSelectedProductReturn(null); setProductSearchReturn(''); }}
+                      style={{ 
+                        position: 'absolute', 
+                        top: '1.5rem', 
+                        left: '1.5rem', 
+                        background: 'rgba(255,255,255,0.05)', 
+                        border: 'none', 
+                        color: 'var(--text-secondary)',
+                        borderRadius: '50%',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        zIndex: 10
+                      }}
+                      title="Clear Selection"
+                    >
+                      <X size={18} />
+                    </button>
+
+                    <div className="card-header" style={{ textAlign: 'center', paddingLeft: '3rem' }}>
+                      <h3 className="card-title">Channel Wise Performance (Returns): {selectedProductReturn}</h3>
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', marginTop: '1rem' }}>
+                        <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '0.5rem 1.5rem', borderRadius: 'var(--radius-sm)' }}>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Total Units: </span>
+                          <span style={{ fontWeight: 700, color: 'var(--accent-color)' }}>{formatNumber(productChannelReturnData.totalUnits)}</span>
+                        </div>
+                        <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '0.5rem 1.5rem', borderRadius: 'var(--radius-sm)' }}>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Return %: </span>
+                          <span style={{ fontWeight: 700, color: '#ff8d72' }}>{productChannelReturnData.overallReturnPct.toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ height: '400px', marginTop: '2rem' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={productChannelReturnData.channels} layout="vertical" margin={{ left: 40, right: 40 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                          <XAxis type="number" hide />
+                          <YAxis 
+                            dataKey="channel" 
+                            type="category" 
+                            stroke="var(--text-secondary)" 
+                            fontSize={12}
+                            tickLine={false}
+                            axisLine={false}
+                            width={120}
+                          />
+                          <Tooltip 
+                            content={<ReturnsCustomTooltip />} 
+                            cursor={false} 
+                          />
+                          <Bar 
+                            dataKey="returns" 
+                            radius={[0, 4, 4, 0]} 
+                            barSize={25}
+                            activeBar={{ 
+                              stroke: 'var(--accent-color)', 
+                              strokeWidth: 2,
+                              fillOpacity: 0.8
+                            }}
+                          >
+                            {productChannelReturnData.channels.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-sm)' }}>
+                       <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
+                         {productChannelReturnData.channels.slice(0, 6).map((item, idx) => (
+                           <div key={idx} style={{ textAlign: 'center' }}>
+                             <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.channel}>{item.channel}</div>
+                             <div style={{ fontWeight: 700, fontSize: '1.1rem', margin: '4px 0', color: 'var(--text-primary)' }}>{item.units} Units</div>
+                             <div style={{ color: '#ff8d72', fontSize: '0.85rem', fontWeight: 600 }}>{item.returns} Returns</div>
+                           </div>
+                         ))}
+                       </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2053,6 +2693,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <div className="metric-value">{formatNumber(metrics.totalUnits)}</div>
                     </div>
                     <div className="metric-icon"><ShoppingBag size={24} /></div>
+                  </div>
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Return (%)</h3>
+                      <div className="metric-value">
+                        {formatNumber(metrics.totalReturns)} ({metrics.overallReturnPct.toFixed(0)}%)
+                      </div>
+                    </div>
+                    <div className="metric-icon"><TrendingDown size={24} /></div>
                   </div>
                   <div className="card metric-card">
                     <div className="metric-info">
@@ -2202,7 +2851,172 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <thead>
                         <tr>
                           <th>Item Color (SKU)</th>
-                          <th>Units Sold</th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>Units Sold</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdown(activeTableFilterDropdown === 'units' ? null : 'units');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortField === 'units' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Units Sold"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'units' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdown === 'units' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'units' && skuSortDirection === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'units' && skuSortDirection === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('units');
+                                    setSkuSortDirection('desc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'units' && skuSortDirection === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'units' && skuSortDirection === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('units');
+                                    setSkuSortDirection('asc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>Return(%)</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdown(activeTableFilterDropdown === 'returns' ? null : 'returns');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortField === 'returns' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Return(%)"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'returns' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdown === 'returns' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'returns' && skuSortDirection === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'returns' && skuSortDirection === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('returns');
+                                    setSkuSortDirection('desc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'returns' && skuSortDirection === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'returns' && skuSortDirection === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('returns');
+                                    setSkuSortDirection('asc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
                           <th>Total Revenue</th>
                           <th>Avg Selling Price</th>
                         </tr>
@@ -2212,6 +3026,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <tr key={idx}>
                             <td style={{ fontWeight: 600 }}>{item.sku}</td>
                             <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
+                            <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                              {item.returns} ({item.returnPct.toFixed(0)}%)
+                            </td>
                             <td>{formatCurrency(item.revenue)}</td>
                             <td>{formatCurrency(item.revenue / item.units)}</td>
                           </tr>
