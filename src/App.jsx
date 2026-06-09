@@ -94,6 +94,17 @@ const normalizeChannelName = (rawName) => {
   return name;
 };
 
+const isFY25File = (name) => {
+  if (!name) return false;
+  if (!name.startsWith('[RETURN]') && name.includes('FY25')) {
+    return true;
+  }
+  if (name.startsWith('[RETURN]') && (name.includes('2025') || name.includes('FY25'))) {
+    return true;
+  }
+  return false;
+};
+
 const getChannelColor = (channelName) => {
   if (!channelName) return COLORS[0];
   const name = channelName.toLowerCase();
@@ -286,6 +297,23 @@ function App() {
   const [productSearchReturn, setProductSearchReturn] = useState('');
   const [selectedProductReturn, setSelectedProductReturn] = useState(null);
 
+  // Previous Years Lazy Loading States
+  const [isFY25Loaded, setIsFY25Loaded] = useState(false);
+  const [isFY25Loading, setIsFY25Loading] = useState(false);
+  const [fy25Progress, setFy25Progress] = useState({ active: false, current: 0, total: 0 });
+
+  // Previous Years Filter States
+  const [selectedMonthPrev, setSelectedMonthPrev] = useState('All');
+  const [selectedDatePrev, setSelectedDatePrev] = useState('All');
+  const [selectedDivisionPrev, setSelectedDivisionPrev] = useState('All');
+  const [selectedChannelsPrev, setSelectedChannelsPrev] = useState([]);
+  const [selectedCategoriesPrev, setSelectedCategoriesPrev] = useState([]);
+
+  // Previous Years SKU Sorting States
+  const [skuSortFieldPrev, setSkuSortFieldPrev] = useState('units');
+  const [skuSortDirectionPrev, setSkuSortDirectionPrev] = useState('desc');
+  const [activeTableFilterDropdownPrev, setActiveTableFilterDropdownPrev] = useState(null);
+
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState('All');
   const [selectedDate, setSelectedDate] = useState('All');
@@ -303,6 +331,7 @@ function App() {
   useEffect(() => {
     const handleGlobalClick = () => {
       setActiveTableFilterDropdown(null);
+      setActiveTableFilterDropdownPrev(null);
     };
     document.addEventListener('click', handleGlobalClick);
     return () => document.removeEventListener('click', handleGlobalClick);
@@ -367,40 +396,42 @@ function App() {
       
       // 2. Start background download
       if (formatted.length > 0) {
-        startBackgroundDownload(formatted);
+        const filesToDownload = formatted.filter(f => !isFY25File(f.name) || isFY25Loaded);
+        startBackgroundDownload(filesToDownload);
       }
     } else if (error) {
       console.error("Error fetching metadata.", error);
     }
   };
 
-  const startBackgroundDownload = async (files) => {
-    setDownloadProgress({ active: true, current: 0, total: files.length });
-    
-    let currentFilesState = [...files];
+  const downloadFilesData = async (files, setProgress) => {
+    if (files.length === 0) return;
+    setProgress({ active: true, current: 0, total: files.length });
     let completedCount = 0;
     
-    // Concurrency queue
-    const queue = files.map((file, index) => ({ file, index }));
-    const limit = 6; // Maximum concurrent requests
+    // Group files into batches of 15 to query multiple files in a single HTTP request
+    const batchSize = 15;
+    const batches = [];
+    for (let i = 0; i < files.length; i += batchSize) {
+      batches.push(files.slice(i, i + batchSize));
+    }
     
-    const worker = async () => {
-      while (queue.length > 0) {
-        const item = queue.shift();
-        if (!item) continue;
-        const { file, index } = item;
-        
-        try {
-          const { data, error } = await supabase
-            .from('uploaded_files')
-            .select('data')
-            .eq('id', file.id)
-            .single();
+    const promises = batches.map(async (batch) => {
+      const batchIds = batch.map(f => f.id);
+      try {
+        const { data, error } = await supabase
+          .from('uploaded_files')
+          .select('id, data')
+          .in('id', batchIds);
+          
+        if (!error && data) {
+          const updates = {};
+          data.forEach(item => {
+            const file = batch.find(f => f.id === item.id);
+            if (!file || !item.data) return;
             
-          if (!error && data && data.data) {
-            // Rehydrate dates and classify Financial Year (FY) dynamically
             const isRet = (file.name || '').startsWith('[RETURN]');
-            const parsedRows = data.data.map(row => {
+            const parsedRows = item.data.map(row => {
               if (isRet || row.is_return) {
                 let dateObj = null;
                 if (row.parsedDate) {
@@ -488,7 +519,6 @@ function App() {
                 }
               }
 
-              // row.priceVal is set by migration & new uploads; fall back to raw columns for any legacy records
               const priceVal = row.priceVal ?? row.new_sp ?? row.newsp ?? row.total_selling_price ?? row.totalsellingprice ?? row.price ?? 0;
               const parsedPriceVal = parseFloat(priceVal) || 0;
 
@@ -506,27 +536,38 @@ function App() {
               };
             });
             
-            currentFilesState[index].data = parsedRows;
-            
-            // Trigger React re-render as files arrive
-            setUploadedFiles([...currentFilesState]);
-          } else if (error) {
-            console.error(`Error fetching file ${file.id}:`, error);
-          }
-        } catch (err) {
-          console.error(`Caught error fetching file ${file.id}:`, err);
-        } finally {
-          completedCount++;
-          setDownloadProgress(prev => ({ ...prev, current: completedCount }));
+            updates[item.id] = parsedRows;
+          });
+          
+          setUploadedFiles(prev => prev.map(f => updates[f.id] ? { ...f, data: updates[f.id] } : f));
+        } else if (error) {
+          console.error(`Error fetching batch:`, error);
         }
+      } catch (err) {
+        console.error(`Caught error fetching batch:`, err);
+      } finally {
+        completedCount += batch.length;
+        setProgress(prev => ({ ...prev, current: completedCount }));
       }
-    };
+    });
     
-    // Start worker pool
-    const workers = Array(limit).fill(null).map(() => worker());
-    await Promise.all(workers);
+    await Promise.all(promises);
+    setProgress({ active: false, current: 0, total: 0 });
+  };
+
+  const startBackgroundDownload = async (files) => {
+    await downloadFilesData(files, setDownloadProgress);
+  };
+
+  const loadFY25Data = async () => {
+    setIsFY25Loading(true);
+    const fy25Files = uploadedFiles.filter(f => isFY25File(f.name) && f.data.length === 0);
     
-    setDownloadProgress({ active: false, current: 0, total: 0 });
+    if (fy25Files.length > 0) {
+      await downloadFilesData(fy25Files, setFy25Progress);
+    }
+    setIsFY25Loaded(true);
+    setIsFY25Loading(false);
   };
 
   const handleAuth = async (e) => {
@@ -1047,6 +1088,237 @@ function App() {
       return true;
     });
   }, [returnData, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedFY]);
+
+  const prevFilteredData = useMemo(() => {
+    const fy25Data = uploadedFiles
+      .filter(file => !file.name.startsWith('[RETURN]'))
+      .flatMap(file => file.data)
+      .filter(row => row.fy === '2025');
+
+    return fy25Data.filter(row => {
+      const month = row.monthName || 'Unknown';
+      const date = row.formattedDate || 'Unknown';
+      const division = row.division || 'Unknown';
+      const channel = row.channel_name || 'Unknown';
+      const category = row.categories || row.category || 'Unknown';
+
+      if (selectedMonthPrev !== 'All' && month !== selectedMonthPrev) return false;
+      if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
+      if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
+      if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
+      if (selectedCategoriesPrev.length > 0 && !selectedCategoriesPrev.includes(category)) return false;
+      return true;
+    });
+  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev]);
+
+  const prevFilteredReturnData = useMemo(() => {
+    const fy25Return = uploadedFiles
+      .filter(file => file.name.startsWith('[RETURN]'))
+      .flatMap(file => file.data)
+      .filter(row => row.fy === '2025');
+
+    return fy25Return.filter(row => {
+      const month = row.monthName || 'Unknown';
+      const date = row.formattedDate || 'Unknown';
+      const channel = row.channel_name || 'Unknown';
+      const division = row.division || 'Unknown';
+      const category = row.categories || row.category || 'Unknown';
+
+      if (selectedMonthPrev !== 'All' && month !== selectedMonthPrev) return false;
+      if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
+      if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
+      if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
+      if (selectedCategoriesPrev.length > 0 && !selectedCategoriesPrev.includes(category)) return false;
+      return true;
+    });
+  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedChannelsPrev, selectedDivisionPrev, selectedCategoriesPrev]);
+
+  const prevFilterOptions = useMemo(() => {
+    const fy25Data = uploadedFiles
+      .filter(file => !file.name.startsWith('[RETURN]'))
+      .flatMap(file => file.data)
+      .filter(row => row.fy === '2025');
+
+    if (!fy25Data.length) return { months: [], dates: [], divisions: [], channels: [], categories: [] };
+    
+    const months = new Set();
+    const dates = new Set();
+    const divisions = new Set();
+    const channels = new Set();
+    const categories = new Set();
+
+    fy25Data.forEach(row => {
+      months.add(row.monthName || 'Unknown');
+      
+      if (selectedMonthPrev === 'All' || row.monthName === selectedMonthPrev) {
+        dates.add(row.formattedDate || 'Unknown');
+      }
+
+      divisions.add(row.division || 'Unknown');
+      channels.add(row.channel_name || 'Unknown');
+      categories.add(row.categories || 'Unknown');
+    });
+
+    const monthOrder = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    
+    const dateMap = new Map();
+    fy25Data.forEach(row => {
+      if(row.parsedDate && row.formattedDate) {
+        dateMap.set(row.formattedDate, row.parsedDate.getTime());
+      }
+    });
+
+    const sortedDates = Array.from(dates).sort((a,b) => {
+      if (a === 'Unknown') return 1;
+      if (b === 'Unknown') return -1;
+      return (dateMap.get(a) || 0) - (dateMap.get(b) || 0);
+    });
+
+    return {
+      months: Array.from(months).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b)),
+      dates: sortedDates,
+      divisions: Array.from(divisions).sort(),
+      channels: Array.from(channels).sort(),
+      categories: Array.from(categories).sort()
+    };
+  }, [uploadedFiles, selectedMonthPrev]);
+
+  const prevMetrics = useMemo(() => {
+    if (!prevFilteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0, totalReturns: 0, overallReturnPct: 0 };
+
+    let totalSales = 0;
+    let totalUnits = prevFilteredData.length;
+    let channels = new Set();
+    let categories = new Set();
+
+    prevFilteredData.forEach(row => {
+      totalSales += row.priceVal;
+      channels.add(row.channel_name || 'Unknown');
+      categories.add(row.categories || 'Unknown');
+    });
+
+    let totalReturns = 0;
+    prevFilteredReturnData.forEach(row => {
+      totalReturns += row.return_qty;
+    });
+
+    const overallReturnPct = totalUnits > 0 ? (totalReturns / totalUnits) * 100 : 0;
+
+    return {
+      totalSales: totalSales.toFixed(2),
+      totalUnits,
+      uniqueChannels: channels.size,
+      uniqueCategories: categories.size,
+      totalReturns,
+      overallReturnPct
+    };
+  }, [prevFilteredData, prevFilteredReturnData]);
+
+  const prevChartsData = useMemo(() => {
+    if (!prevFilteredData.length) return null;
+
+    const salesByDate = {};
+    const salesByChannel = {};
+    const salesByDivision = {};
+    const salesByCategory = {};
+
+    prevFilteredData.forEach(row => {
+      const val = row.priceVal;
+
+      const dateKey = row.formattedDate || 'Unknown';
+      const channel = row.channel_name || 'Unknown';
+      const division = row.division || 'Unknown';
+      const category = row.categories || 'Unknown';
+
+      if (!salesByDate[dateKey]) salesByDate[dateKey] = { sales: 0, units: 0, parsedDate: row.parsedDate };
+      salesByDate[dateKey].sales += val;
+      salesByDate[dateKey].units += 1;
+
+      if (!salesByChannel[channel]) salesByChannel[channel] = { sales: 0, units: 0 };
+      salesByChannel[channel].sales += val;
+      salesByChannel[channel].units += 1;
+
+      if (!salesByDivision[division]) salesByDivision[division] = { sales: 0, units: 0 };
+      salesByDivision[division].sales += val;
+      salesByDivision[division].units += 1;
+
+      if (!salesByCategory[category]) salesByCategory[category] = { sales: 0, units: 0 };
+      salesByCategory[category].sales += val;
+      salesByCategory[category].units += 1;
+    });
+
+    const formatChart = (obj) => Object.entries(obj)
+      .map(([name, dataObj]) => ({ name, sales: Math.round(dataObj.sales), units: dataObj.units, value: insightType === 'revenue' ? Math.round(dataObj.sales) : dataObj.units }))
+      .sort((a, b) => b.value - a.value);
+    
+    const dateData = Object.entries(salesByDate)
+      .map(([date, dataObj]) => ({ 
+        date, 
+        sales: Math.round(dataObj.sales), 
+        units: dataObj.units, 
+        asp: dataObj.units > 0 ? Math.round(dataObj.sales / dataObj.units) : 0,
+        timestamp: dataObj.parsedDate ? dataObj.parsedDate.getTime() : 0,
+        value: insightType === 'revenue' ? Math.round(dataObj.sales) : dataObj.units 
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    return {
+      dateData,
+      channelData: formatChart(salesByChannel).slice(0, 5),
+      divisionData: formatChart(salesByDivision),
+      categoryData: formatChart(salesByCategory).slice(0, 5)
+    };
+  }, [prevFilteredData, insightType]);
+
+  const prevSkuAnalysisData = useMemo(() => {
+    if (!prevFilteredData.length) return [];
+    
+    const returnMap = {};
+    prevFilteredReturnData.forEach(row => {
+      const sku = row.item_color || 'Unknown';
+      if (!returnMap[sku]) {
+        returnMap[sku] = 0;
+      }
+      returnMap[sku] += row.return_qty;
+    });
+
+    const skuMap = {};
+    
+    prevFilteredData.forEach(row => {
+      const val = row.priceVal;
+      const sku = row.item_color || row.itemcolor || row.barcode || 'Unknown';
+      
+      if (!skuMap[sku]) {
+        skuMap[sku] = { 
+          sku, 
+          units: 0, 
+          revenue: 0, 
+          division: row.division || '-', 
+          category: row.categories || row.category || '-' 
+        };
+      }
+      skuMap[sku].units += 1;
+      skuMap[sku].revenue += val;
+    });
+    
+    return Object.values(skuMap)
+      .map(item => {
+        const returns = returnMap[item.sku] || 0;
+        const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
+        return {
+          ...item,
+          returns,
+          returnPct
+        };
+      })
+      .sort((a, b) => {
+        if (skuSortFieldPrev === 'returns') {
+          return skuSortDirectionPrev === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+        } else {
+          return skuSortDirectionPrev === 'desc' ? b.units - a.units : a.units - b.units;
+        }
+      });
+  }, [prevFilteredData, prevFilteredReturnData, skuSortFieldPrev, skuSortDirectionPrev]);
 
   const metrics = useMemo(() => {
     if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0, totalReturns: 0, overallReturnPct: 0 };
@@ -2045,6 +2317,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Target size={20} />
               <span>Target & Goals</span>
             </div>
+            <div className={`nav-item ${activePage === 'previous_years' ? 'active' : ''}`} onClick={() => { setActivePage('previous_years'); setIsMobileMenuOpen(false); }}>
+              <Database size={20} />
+              <span>Previous Years</span>
+            </div>
             {userRole === 'admin' && (
               <div className={`nav-item ${activePage === 'raw_files' ? 'active' : ''}`} onClick={() => { setActivePage('raw_files'); setIsMobileMenuOpen(false); }}>
                 <FileText size={20} />
@@ -2080,6 +2356,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               {activePage === 'product_level' && 'Product Level Analysis'}
               {activePage === 'growth' && 'Month-over-Month Growth'}
               {activePage === 'goals' && 'Target & Goal Tracking'}
+              {activePage === 'previous_years' && 'Previous Years Performance'}
             </h1>
             <p>Real-time insights from your daily reports</p>
           </div>
@@ -2213,6 +2490,461 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               )}
             </div>
           </div>
+        ) : activePage === 'previous_years' ? (
+          <div className="dashboard-content">
+            {!isFY25Loaded && (
+              <div className="card" style={{ maxWidth: '600px', margin: '4rem auto', padding: '3rem', textAlign: 'center', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)', boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)' }}>
+                <Database size={64} color="var(--accent-color)" style={{ marginBottom: '1.5rem', opacity: 0.85 }} />
+                <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', marginBottom: '1rem' }}>Historical Insights (FY25-26)</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: '1.6', marginBottom: '2rem' }}>
+                  To optimize dashboard load times, previous years' files are not loaded by default. 
+                  Click below to securely fetch the FY25-26 dataset from the database.
+                </p>
+                {isFY25Loading ? (
+                  <div style={{ width: '100%' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                      <span>Downloading historical database...</span>
+                      <span>{fy25Progress.current} / {fy25Progress.total} files</span>
+                    </div>
+                    <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${fy25Progress.total > 0 ? (fy25Progress.current / fy25Progress.total) * 100 : 0}%`, background: 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={loadFY25Data} 
+                    className="upload-btn" 
+                    style={{ margin: '0 auto', fontSize: '1.05rem', padding: '0.75rem 2rem' }}
+                  >
+                    Load Previous Years Data (FY25-26)
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isFY25Loaded && (
+              <>
+                {/* Insight toggle for previous years page */}
+                <div className="insight-toggle-container">
+                  <div className="toggle-group">
+                    <button 
+                      className={`toggle-btn ${insightType === 'revenue' ? 'active' : ''}`}
+                      onClick={() => setInsightType('revenue')}
+                    >
+                      Revenue Insights
+                    </button>
+                    <button 
+                      className={`toggle-btn ${insightType === 'units' ? 'active' : ''}`}
+                      onClick={() => setInsightType('units')}
+                    >
+                      Unit Insights
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom filters for previous years */}
+                <div className="filters-container">
+                  <CustomSelect 
+                    value={selectedMonthPrev} 
+                    options={prevFilterOptions.months} 
+                    onChange={(val) => {
+                      setSelectedMonthPrev(val);
+                      setSelectedDatePrev('All');
+                    }} 
+                    placeholder="All Months" 
+                  />
+                  <CustomSelect 
+                    value={selectedDatePrev} 
+                    options={prevFilterOptions.dates} 
+                    onChange={setSelectedDatePrev} 
+                    placeholder="All Dates" 
+                  />
+                  <CustomSelect 
+                    value={selectedDivisionPrev} 
+                    options={prevFilterOptions.divisions} 
+                    onChange={setSelectedDivisionPrev} 
+                    placeholder="All Divisions" 
+                  />
+                  <CustomMultiSelect 
+                    values={selectedChannelsPrev} 
+                    options={prevFilterOptions.channels} 
+                    onChange={setSelectedChannelsPrev} 
+                    placeholder="All Channels" 
+                  />
+                  <CustomMultiSelect 
+                    values={selectedCategoriesPrev} 
+                    options={prevFilterOptions.categories} 
+                    onChange={setSelectedCategoriesPrev} 
+                    placeholder="All Categories" 
+                  />
+                </div>
+
+                {/* Top Metrics */}
+                <div className="dashboard-grid">
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Total Revenue</h3>
+                      <div className="metric-value">{formatCurrency(prevMetrics.totalSales)}</div>
+                    </div>
+                    <div className="metric-icon"><DollarSign size={24} /></div>
+                  </div>
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Total Units</h3>
+                      <div className="metric-value">{formatNumber(prevMetrics.totalUnits)}</div>
+                    </div>
+                    <div className="metric-icon"><ShoppingBag size={24} /></div>
+                  </div>
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Return (%)</h3>
+                      <div className="metric-value">
+                        {formatNumber(prevMetrics.totalReturns)} ({prevMetrics.overallReturnPct.toFixed(0)}%)
+                      </div>
+                    </div>
+                    <div className="metric-icon"><TrendingDown size={24} /></div>
+                  </div>
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Active Channels</h3>
+                      <div className="metric-value">{prevMetrics.uniqueChannels}</div>
+                    </div>
+                    <div className="metric-icon"><Layers size={24} /></div>
+                  </div>
+                  <div className="card metric-card">
+                    <div className="metric-info">
+                      <h3>Avg Selling Price</h3>
+                      <div className="metric-value">
+                        {prevMetrics.totalUnits > 0 
+                          ? formatCurrency(prevMetrics.totalSales / prevMetrics.totalUnits) 
+                          : formatCurrency(0)}
+                      </div>
+                    </div>
+                    <div className="metric-icon"><TrendingUp size={24} /></div>
+                  </div>
+                </div>
+
+                {prevChartsData ? (
+                  <div className="chart-grid">
+                    {/* Sales by Channel */}
+                    <div className="card full-width-chart">
+                      <div className="card-header">
+                        <h3 className="card-title">Top Channels ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
+                      </div>
+                      <div style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={prevChartsData.channelData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" horizontal={false} />
+                            <XAxis type="number" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
+                            <YAxis dataKey="name" type="category" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} width={120} />
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Bar 
+                              dataKey="value" 
+                              radius={[0, 4, 4, 0]}
+                              activeBar={{ 
+                                stroke: 'var(--accent-color)', 
+                                strokeWidth: 2,
+                                fillOpacity: 0.8
+                              }}
+                            >
+                              {prevChartsData.channelData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={getChannelColor(entry.name)} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Sales by Division */}
+                    <div className="card">
+                      <div className="card-header">
+                        <h3 className="card-title">{insightType === 'revenue' ? 'Revenue by Division' : 'Units by Division'}</h3>
+                      </div>
+                      <div style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                             <Pie
+                               data={prevChartsData.divisionData}
+                               cx="50%"
+                               cy="50%"
+                               innerRadius={45}
+                               outerRadius={90}
+                               paddingAngle={5}
+                               dataKey="value"
+                               activeShape={renderActiveShape}
+                               style={{ cursor: 'pointer' }}
+                             >
+                               {prevChartsData.divisionData.map((entry, index) => {
+                                 const name = (entry.name || '').toLowerCase();
+                                 const isFootwear = name.includes('footwear');
+                                 const fill = isFootwear ? '#00f2c4' : '#ba54f5';
+                                 return <Cell key={`cell-${index}`} fill={fill} />;
+                               })}
+                             </Pie>
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Legend 
+                              formatter={(value) => {
+                                const totalDivisionVal = prevChartsData.divisionData ? prevChartsData.divisionData.reduce((sum, d) => sum + d.value, 0) : 0;
+                                const item = prevChartsData.divisionData ? prevChartsData.divisionData.find(d => d.name.toLowerCase() === value.toLowerCase()) : null;
+                                const pct = totalDivisionVal > 0 && item ? ((item.value / totalDivisionVal) * 100).toFixed(1) : '0.0';
+                                return (
+                                  <span style={{ 
+                                    color: '#ffffff', 
+                                    fontSize: '18px', 
+                                    fontWeight: '800', 
+                                    marginLeft: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em'
+                                  }}>
+                                    {value}: {pct}%
+                                  </span>
+                                );
+                              }}
+                              iconSize={14}
+                              wrapperStyle={{ paddingTop: '1.5rem' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    
+                    {/* Top Categories */}
+                    <div className="card">
+                      <div className="card-header">
+                        <h3 className="card-title">Top Categories ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
+                      </div>
+                      <div style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={prevChartsData.categoryData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
+                            <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
+                            <YAxis stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Bar 
+                              dataKey="value" 
+                              radius={[4, 4, 0, 0]}
+                              activeBar={{ 
+                                stroke: 'var(--accent-color)', 
+                                strokeWidth: 2,
+                                fillOpacity: 0.8
+                              }}
+                            >
+                              {prevChartsData.categoryData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[(index + 2) % COLORS.length]} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-sm)', marginBottom: '2rem' }}>
+                    <BarChart2 size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
+                    <p>No chart data available for the selected previous years filters.</p>
+                  </div>
+                )}
+
+                {/* Top Selling Items Table */}
+                <div className="card">
+                  <div className="card-header">
+                    <h3 className="card-title">Top Selling Items</h3>
+                  </div>
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Item Color (SKU)</th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>Units Sold</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdownPrev(activeTableFilterDropdownPrev === 'units' ? null : 'units');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortFieldPrev === 'units' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Units Sold"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'units' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdownPrev === 'units' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('units');
+                                    setSkuSortDirectionPrev('desc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('units');
+                                    setSkuSortDirectionPrev('asc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>Return(%)</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdownPrev(activeTableFilterDropdownPrev === 'returns' ? null : 'returns');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortFieldPrev === 'returns' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Return(%)"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'returns' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdownPrev === 'returns' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('returns');
+                                    setSkuSortDirectionPrev('desc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('returns');
+                                    setSkuSortDirectionPrev('asc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
+                          <th>Total Revenue</th>
+                          <th>Avg Selling Price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {prevSkuAnalysisData.slice(0, 100).map((item, idx) => (
+                          <tr key={idx}>
+                            <td style={{ fontWeight: 600 }}>{item.sku}</td>
+                            <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
+                            <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                              {item.returns} ({item.returnPct.toFixed(0)}%)
+                            </td>
+                            <td>{formatCurrency(item.revenue)}</td>
+                            <td>{formatCurrency(item.revenue / item.units)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         ) : !data.length ? (
           <div className="empty-state">
             <FileText size={64} />
@@ -2251,12 +2983,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             )}
 
             {/* Global Filters */}
-            {activePage !== 'raw_files' && activePage !== 'growth' && (
+            {activePage !== 'raw_files' && activePage !== 'growth' && activePage !== 'previous_years' && (
               <div className="filters-container">
                 {activePage !== 'goals' && (
                   <CustomSelect 
                     value={selectedFY} 
-                    options={['2025', '2026']} 
+                    options={['2026']} 
                     onChange={(val) => {
                       setSelectedFY(val);
                       setSelectedMonth('All');
