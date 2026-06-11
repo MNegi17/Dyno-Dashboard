@@ -1907,31 +1907,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         {/* Dyno Logo - Top Left */}
         <div 
           onClick={() => window.location.reload()}
-          style={{
-            position: 'absolute',
-            top: '2rem',
-            left: '2rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.6rem',
-            cursor: 'pointer',
-            zIndex: 100,
-            textDecoration: 'none',
-          }}
+          className="login-brand-wrapper"
         >
-          <div style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '10px',
-            background: 'var(--accent-gradient)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)',
-          }}>
+          <span>MN</span>
+          <div className="brand-icon-box">
             <Activity size={22} color="#fff" />
           </div>
-          <span style={{ fontWeight: 800, fontSize: '1.25rem', color: 'var(--text-primary)', letterSpacing: '0.05em', lineHeight: 1.2 }}>DYNO</span>
         </div>
         <div style={{ 
           position: 'absolute', 

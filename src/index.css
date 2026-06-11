@@ -1400,3 +1400,56 @@ tr:hover td {
 .glowing-text-avatar:hover span {
   text-shadow: 0 0 18px rgba(225, 78, 202, 1), 0 0 8px rgba(186, 84, 245, 0.8);
 }
+
+/* Login Brand Top-Left Wrapper & Hover Effects */
+.login-brand-wrapper {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  z-index: 100;
+  text-decoration: none;
+  transition: all 0.3s ease;
+}
+
+.login-brand-wrapper span {
+  font-weight: 900;
+  font-size: 1.4rem;
+  color: #fff;
+  background: linear-gradient(135deg, #ba54f5, #e14eca);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 10px rgba(186, 84, 245, 0.8);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  transition: all 0.3s ease;
+}
+
+.login-brand-wrapper .brand-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent-gradient);
+  display: flex;
+  align-items: center;
+  justifyContent: center;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.login-brand-wrapper:hover {
+  transform: translateY(-2px);
+}
+
+.login-brand-wrapper:hover span {
+  text-shadow: 0 0 18px rgba(225, 78, 202, 1), 0 0 8px rgba(186, 84, 245, 0.8);
+}
+
+.login-brand-wrapper:hover .brand-icon-box {
+  transform: scale(1.08) rotate(3deg);
+  box-shadow: 0 6px 20px rgba(186, 84, 245, 0.6);
+}
+
