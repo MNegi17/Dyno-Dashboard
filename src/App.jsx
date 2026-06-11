@@ -1939,13 +1939,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           right: '2rem', 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '1rem',
+          gap: '1.25rem',
           zIndex: 100
         }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ 
               fontWeight: 800, 
-              fontSize: '1.05rem',
+              fontSize: '1.25rem',
               letterSpacing: '0.03em',
               color: 'var(--text-primary)',
               lineHeight: 1.2
@@ -1957,14 +1957,14 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '54px',
-            height: '54px',
-            borderRadius: '12px',
+            width: '68px',
+            height: '68px',
+            borderRadius: '14px',
             background: 'rgba(255, 255, 255, 0.03)',
             border: '1px solid rgba(255, 255, 255, 0.07)',
             boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
           }}>
-            <GlowingLogoIcon size={36} />
+            <GlowingLogoIcon size={46} />
           </div>
         </div>
         <div className="auth-card">
@@ -2282,8 +2282,28 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             title="Go to Dashboard"
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Activity className="brand-icon" size={26} color="var(--accent-color)" />
-              <span style={{ fontWeight: 800, fontSize: '1.25rem', color: '#fff', letterSpacing: '0.05em' }}>DYNO</span>
+              <span style={{ 
+                fontWeight: 800, 
+                fontSize: '1.1rem', 
+                color: '#fff', 
+                letterSpacing: '0.03em',
+                lineHeight: 1.2
+              }}>
+                Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
+              </span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '38px',
+                height: '38px',
+                borderRadius: '8px',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.07)',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+              }}>
+                <GlowingLogoIcon size={24} />
+              </div>
             </div>
             <button 
               className="mobile-menu-btn" 
@@ -2361,29 +2381,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             <p>Real-time insights from your daily reports</p>
           </div>
           <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ 
-                fontWeight: 800, 
-                fontSize: '1.05rem',
-                letterSpacing: '0.03em',
-                color: 'var(--text-primary)',
-                lineHeight: 1.2
-              }}>
-                Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
-              </div>
-            </div>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '54px',
-              height: '54px',
-              borderRadius: '12px',
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid rgba(255, 255, 255, 0.07)',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
-            }}>
-              <GlowingLogoIcon size={36} />
+            <div className="glowing-text-avatar">
+              <span>
+                MN
+              </span>
             </div>
           </div>
         </header>
