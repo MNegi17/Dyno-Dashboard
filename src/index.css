@@ -1401,11 +1401,10 @@ tr:hover td {
   text-shadow: 0 0 18px rgba(225, 78, 202, 1), 0 0 8px rgba(186, 84, 245, 0.8);
 }
 
-/* Login Brand Top-Left Wrapper & Hover Effects */
+/* Login Brand Wrapper & Hover Effects */
 .login-brand-wrapper {
   position: absolute;
   top: 2rem;
-  left: 2rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -1413,6 +1412,14 @@ tr:hover td {
   z-index: 100;
   text-decoration: none;
   transition: all 0.3s ease;
+}
+
+.login-brand-wrapper.left {
+  left: 2rem;
+}
+
+.login-brand-wrapper.right {
+  right: 2rem;
 }
 
 .login-brand-wrapper span {
@@ -1435,7 +1442,7 @@ tr:hover td {
   background: var(--accent-gradient);
   display: flex;
   align-items: center;
-  justifyContent: center;
+  justify-content: center;
   box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1452,4 +1459,5 @@ tr:hover td {
   transform: scale(1.08) rotate(3deg);
   box-shadow: 0 6px 20px rgba(186, 84, 245, 0.6);
 }
+
 

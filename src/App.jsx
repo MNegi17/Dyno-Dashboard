@@ -1904,26 +1904,17 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </div>
 
-        {/* Dyno Logo - Top Left */}
-        <div 
-          onClick={() => window.location.reload()}
-          className="login-brand-wrapper"
-        >
-          <span>MN</span>
-          <div className="brand-icon-box">
-            <Activity size={22} color="#fff" />
-          </div>
-        </div>
+        {/* Purple United Kids Logo - Top Left */}
         <div style={{ 
           position: 'absolute', 
           top: '2rem', 
-          right: '2rem', 
+          left: '2rem', 
           display: 'flex', 
           alignItems: 'center', 
           gap: '1.25rem',
           zIndex: 100
         }}>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'left' }}>
             <div style={{ 
               fontWeight: 800, 
               fontSize: '1.25rem',
@@ -1946,6 +1937,17 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
           }}>
             <GlowingLogoIcon size={46} />
+          </div>
+        </div>
+        
+        {/* Glowing Logo MN - Top Right */}
+        <div 
+          onClick={() => window.location.reload()}
+          className="login-brand-wrapper right"
+        >
+          <span>MN</span>
+          <div className="brand-icon-box">
+            <Activity size={22} color="#fff" style={{ display: 'block', transform: 'translateY(1px)' }} />
           </div>
         </div>
         <div className="auth-card">
