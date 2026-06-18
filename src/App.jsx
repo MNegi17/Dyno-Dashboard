@@ -8,17 +8,16 @@ import {
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
-const GlowingLogoIcon = ({ size = 36 }) => {
+const GlowingLogoIcon = ({ size = 36, white = false }) => {
   return (
     <div 
-      className="glowing-logo-init"
+      className={`glowing-logo-init ${white ? 'white-logo' : ''}`}
       style={{
         width: `${size}px`,
         height: `${size}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        filter: 'none',
         cursor: 'pointer',
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
@@ -31,7 +30,9 @@ const GlowingLogoIcon = ({ size = 36 }) => {
           maxHeight: '100%',
           objectFit: 'contain',
           pointerEvents: 'none',
-          display: 'block'
+          display: 'block',
+          filter: white ? 'brightness(0) invert(1)' : 'none',
+          transition: 'all 0.3s ease'
         }} 
       />
     </div>
@@ -96,6 +97,7 @@ const normalizeChannelName = (rawName) => {
 
 const isFY25File = (name) => {
   if (!name) return false;
+  if (name.startsWith('[INVENTORY]')) return false;
   if (!name.startsWith('[RETURN]') && name.includes('FY25')) {
     return true;
   }
@@ -113,6 +115,15 @@ const getChannelColor = (channelName) => {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return COLORS[Math.abs(hash) % COLORS.length];
+};
+
+const formatLUDate = (date) => {
+  if (!date) return 'N/A';
+  const d = new Date(date);
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const year = d.getFullYear().toString().slice(-2);
+  return `${day}/${month}/${year}`;
 };
 
 const CustomSelect = ({ value, options, onChange, placeholder }) => {
@@ -269,10 +280,8 @@ function App() {
     return 'user';
   });
   
+
   const [loginRole, setLoginRole] = useState('user'); // 'admin' or 'user'
-  const [otpStep, setOtpStep] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -287,6 +296,8 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [skuSearchQuery, setSkuSearchQuery] = useState('');
+  const [skuSearchQueryPrev, setSkuSearchQueryPrev] = useState('');
 
   // Sorting & Table Filter States
   const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
@@ -324,9 +335,7 @@ function App() {
 
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
-  // Temporary storage for user credentials during OTP verification
-  const pendingEmailRef = useRef('');
-  const pendingPassRef = useRef('');
+
 
   useEffect(() => {
     const handleGlobalClick = () => {
@@ -336,6 +345,12 @@ function App() {
     document.addEventListener('click', handleGlobalClick);
     return () => document.removeEventListener('click', handleGlobalClick);
   }, []);
+
+  useEffect(() => {
+    if (userRole !== 'admin' && activePage === 'raw_files') {
+      setActivePage('dashboard');
+    }
+  }, [userRole, activePage]);
 
   useEffect(() => {
     // 1. Initialize from localStorage immediately (on page load/reload)
@@ -431,7 +446,15 @@ function App() {
             if (!file || !item.data) return;
             
             const isRet = (file.name || '').startsWith('[RETURN]');
+            const isInv = (file.name || '').startsWith('[INVENTORY]');
             const parsedRows = item.data.map(row => {
+              if (isInv) {
+                return {
+                  item_color: row.item_color || 'Unknown',
+                  total_inventory: parseFloat(row.total_inventory || row.totalinventory || 0) || 0,
+                  is_inventory: true
+                };
+              }
               if (isRet || row.is_return) {
                 let dateObj = null;
                 if (row.parsedDate) {
@@ -575,80 +598,40 @@ function App() {
     setAuthError('');
     setIsLoading(true);
 
-    if (!otpStep) {
-      // Step 1: Sign in directly with Supabase — no pre-checks
-      const emailToUse = authEmail.trim().toLowerCase();
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: emailToUse,
-        password: authPassword,
-      });
+    const emailToUse = authEmail.trim().toLowerCase();
 
-      if (error) {
-        console.error('Supabase Auth Error:', error);
-        setAuthError('Invalid credentials. Please check your ID and password.');
-        setIsLoading(false);
-        return;
-      }
+    // Enforce admin vs user credentials selection check
+    const calculatedRole = getRoleFromEmail(emailToUse);
+    if (loginRole === 'admin' && calculatedRole !== 'admin') {
+      setAuthError('Under Admin Mode, you cannot login with User credentials.');
+      setIsLoading(false);
+      return;
+    }
+    if (loginRole === 'user' && calculatedRole === 'admin') {
+      setAuthError('Under User Mode, you cannot login with Admin credentials.');
+      setIsLoading(false);
+      return;
+    }
 
-      // Determine role from which button was selected
-      if (loginRole === 'admin') {
-        setSession(authData.session);
-        localStorage.setItem('dyno_session', JSON.stringify(authData.session));
-        setUserRole('admin');
-        hasFetchedRef.current = true;
-        fetchData();
-      } else {
-        // User needs OTP verification.
-        // IMPORTANT: Sign out immediately so the session doesn't flash the dashboard.
-        // We'll re-authenticate after OTP is confirmed.
-        await supabase.auth.signOut();
-        
-        const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-        setGeneratedOtp(newOtp);
-        // Store credentials temporarily for re-auth after OTP
-        const tempEmail = authEmail.trim().toLowerCase();
-        const tempPass = authPassword;
-        
-        try {
-          await fetch('https://formsubmit.co/ajax/manannegi17@gmail.com', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({
-              subject: 'Dyno Dashboard - Your OTP',
-              message: `Your login OTP is: ${newOtp}`,
-              _captcha: 'false',
-            }),
-          });
-        } catch (err) {
-          console.error('Failed to send OTP email', err);
-        }
-        // Store credentials in refs for re-use after OTP
-        pendingEmailRef.current = tempEmail;
-        pendingPassRef.current = tempPass;
-        setOtpStep(true);
-      }
-    } else {
-      // Step 2: Verify OTP for User role, then re-authenticate
-      if (otpCode === generatedOtp) {
-        // Re-sign in with Supabase now that OTP is verified
-        const { data: reAuthData, error: reAuthError } = await supabase.auth.signInWithPassword({
-          email: pendingEmailRef.current,
-          password: pendingPassRef.current,
-        });
-        if (reAuthError || !reAuthData.session) {
-          setAuthError('Session error. Please log in again.');
-          setOtpStep(false);
-        } else {
-          setSession(reAuthData.session);
-          localStorage.setItem('dyno_session', JSON.stringify(reAuthData.session));
-          setUserRole('user');
-          setOtpStep(false);
-          hasFetchedRef.current = true;
-          fetchData();
-        }
-      } else {
-        setAuthError('Invalid OTP code. Please check your email.');
-      }
+    const { data: authData, error } = await supabase.auth.signInWithPassword({
+      email: emailToUse,
+      password: authPassword,
+    });
+
+    if (error) {
+      console.error('Supabase Auth Error:', error);
+      setAuthError('Invalid credentials. Please check your ID and password.');
+      setIsLoading(false);
+      return;
+    }
+
+    if (authData.session) {
+      setSession(authData.session);
+      localStorage.setItem('dyno_session', JSON.stringify(authData.session));
+      const role = getRoleFromEmail(authData.session.user?.email || '');
+      setUserRole(role);
+      hasFetchedRef.current = true;
+      fetchData();
     }
     setIsLoading(false);
   };
@@ -657,15 +640,13 @@ function App() {
     setSession(null);
     localStorage.removeItem('dyno_session');
     supabase.auth.signOut();
-    setOtpStep(false);
-    setOtpCode('');
     setAuthEmail('');
     setAuthPassword('');
   };
 
   const data = useMemo(() => {
     return uploadedFiles
-      .filter(file => !(file.name || '').startsWith('[RETURN]'))
+      .filter(file => !(file.name || '').startsWith('[RETURN]') && !(file.name || '').startsWith('[INVENTORY]'))
       .flatMap(file => file.data);
   }, [uploadedFiles]);
 
@@ -673,6 +654,36 @@ function App() {
     return uploadedFiles
       .filter(file => (file.name || '').startsWith('[RETURN]'))
       .flatMap(file => file.data);
+  }, [uploadedFiles]);
+
+  const latestInventoryData = useMemo(() => {
+    const invFiles = uploadedFiles.filter(f => (f.name || '').startsWith('[INVENTORY]') && f.data && f.data.length > 0);
+    if (invFiles.length === 0) return { date: null, map: {} };
+    
+    const sorted = [...invFiles].sort((a, b) => b.uploadDate - a.uploadDate);
+    const latestFile = sorted[0];
+    
+    const latestTime = latestFile.uploadDate.getTime();
+    const threshold = 10 * 1000;
+    const group = sorted.filter(f => Math.abs(f.uploadDate.getTime() - latestTime) < threshold);
+    
+    const map = {};
+    group.forEach(file => {
+      if (file.data) {
+        file.data.forEach(row => {
+          const sku = row.item_color || 'Unknown';
+          if (!map[sku]) {
+            map[sku] = 0;
+          }
+          map[sku] += row.total_inventory || 0;
+        });
+      }
+    });
+    
+    return {
+      date: latestFile.uploadDate,
+      map
+    };
   }, [uploadedFiles]);
 
   const handleFileUpload = (e) => {
@@ -981,6 +992,78 @@ function App() {
         fetchData();
       } else {
         alert(`Error saving file to database: ${errorMessage}`);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleInventoryUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const bstr = event.target.result;
+      const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const parsedData = XLSX.utils.sheet_to_json(ws);
+      
+      const normalizedData = parsedData.map(row => {
+        const normalizedRow = {};
+        for (const key in row) {
+          const newKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+          normalizedRow[newKey] = row[key];
+        }
+
+        const itemColor = normalizedRow.item_color || normalizedRow.itemcolor || normalizedRow.sku || normalizedRow.barcode || 'Unknown';
+        const totalInventory = parseFloat(normalizedRow.total_inventory || normalizedRow.totalinventory || normalizedRow.uniware || normalizedRow.qty || normalizedRow.quantity || 0) || 0;
+
+        return {
+          item_color: itemColor,
+          total_inventory: totalInventory,
+          is_inventory: true
+        };
+      });
+
+      const chunkSize = 1000;
+      const chunks = [];
+      for (let i = 0; i < normalizedData.length; i += chunkSize) {
+        chunks.push(normalizedData.slice(i, i + chunkSize));
+      }
+
+      setIsLoading(true);
+      let success = true;
+      let errorMessage = "";
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const newFileEntry = {
+          name: chunks.length > 1 ? `[INVENTORY] ${file.name} (Part ${i + 1}/${chunks.length})` : `[INVENTORY] ${file.name}`,
+          record_count: chunk.length,
+          data: chunk
+        };
+
+        const { error } = await supabase.from('uploaded_files').insert([newFileEntry]);
+        if (error) {
+          console.error("Upload inventory chunk error:", error);
+          success = false;
+          errorMessage = error.message;
+          break;
+        }
+        
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
+      }
+
+      setIsLoading(false);
+      e.target.value = null;
+
+      if (success) {
+        fetchData();
+      } else {
+        alert(`Error saving inventory file to database: ${errorMessage}`);
       }
     };
     reader.readAsBinaryString(file);
@@ -1301,24 +1384,34 @@ function App() {
       skuMap[sku].revenue += val;
     });
     
-    return Object.values(skuMap)
+    let result = Object.values(skuMap)
       .map(item => {
         const returns = returnMap[item.sku] || 0;
         const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
+        const inventoryVal = latestInventoryData.map[item.sku] || 0;
         return {
           ...item,
           returns,
-          returnPct
+          returnPct,
+          inventory: inventoryVal
         };
-      })
-      .sort((a, b) => {
+      });
+
+    if (skuSearchQueryPrev.trim()) {
+      const q = skuSearchQueryPrev.toLowerCase().trim();
+      result = result.filter(item => item.sku.toLowerCase().includes(q));
+    }
+
+    return result.sort((a, b) => {
         if (skuSortFieldPrev === 'returns') {
           return skuSortDirectionPrev === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+        } else if (skuSortFieldPrev === 'inventory') {
+          return skuSortDirectionPrev === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
         } else {
           return skuSortDirectionPrev === 'desc' ? b.units - a.units : a.units - b.units;
         }
       });
-  }, [prevFilteredData, prevFilteredReturnData, skuSortFieldPrev, skuSortDirectionPrev]);
+  }, [prevFilteredData, prevFilteredReturnData, skuSortFieldPrev, skuSortDirectionPrev, skuSearchQueryPrev, latestInventoryData]);
 
   const metrics = useMemo(() => {
     if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0, totalReturns: 0, overallReturnPct: 0 };
@@ -1438,24 +1531,34 @@ function App() {
       skuMap[sku].revenue += val;
     });
     
-    return Object.values(skuMap)
+    let result = Object.values(skuMap)
       .map(item => {
         const returns = returnMap[item.sku] || 0;
         const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
+        const inventoryVal = latestInventoryData.map[item.sku] || 0;
         return {
           ...item,
           returns,
-          returnPct
+          returnPct,
+          inventory: inventoryVal
         };
-      })
-      .sort((a, b) => {
+      });
+
+    if (skuSearchQuery.trim()) {
+      const q = skuSearchQuery.toLowerCase().trim();
+      result = result.filter(item => item.sku.toLowerCase().includes(q));
+    }
+
+    return result.sort((a, b) => {
         if (skuSortField === 'returns') {
           return skuSortDirection === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+        } else if (skuSortField === 'inventory') {
+          return skuSortDirection === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
         } else {
           return skuSortDirection === 'desc' ? b.units - a.units : a.units - b.units;
         }
       });
-  }, [filteredData, filteredReturnData, skuSortField, skuSortDirection]);
+  }, [filteredData, filteredReturnData, skuSortField, skuSortDirection, skuSearchQuery, latestInventoryData]);
 
   const topInsights = useMemo(() => {
     if (!filteredData.length) return null;
@@ -1852,7 +1955,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
   );
 };
 
-  if (!session || (loginRole === 'user' && otpStep)) {
+  if (!session) {
     return (
       <div className="auth-container">
         {/* Floating Background Elements */}
@@ -1907,36 +2010,36 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         {/* Purple United Kids Logo - Top Left */}
         <div style={{ 
           position: 'absolute', 
-          top: '2rem', 
-          left: '2rem', 
+          top: '1.5rem', 
+          left: '1.5rem', 
           display: 'flex', 
           alignItems: 'center', 
-          gap: '1.25rem',
+          gap: '0.75rem',
           zIndex: 100
         }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '42px',
+            height: '42px',
+            borderRadius: '10px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.07)',
+            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
+          }}>
+            <GlowingLogoIcon size={28} />
+          </div>
           <div style={{ textAlign: 'left' }}>
             <div style={{ 
               fontWeight: 800, 
-              fontSize: '1.25rem',
+              fontSize: '1.1rem',
               letterSpacing: '0.03em',
               color: 'var(--text-primary)',
               lineHeight: 1.2
             }}>
               Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
             </div>
-          </div>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '68px',
-            height: '68px',
-            borderRadius: '14px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            border: '1px solid rgba(255, 255, 255, 0.07)',
-            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.2)'
-          }}>
-            <GlowingLogoIcon size={46} />
           </div>
         </div>
         
@@ -2140,113 +2243,121 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           <div className="auth-form-container">
               <div className="auth-header">
                 <h2>Welcome to<br/>Dyno Dashboard</h2>
-                <p>
-                  {otpStep 
-                    ? 'Enter the 6-digit OTP sent to your registered email.' 
-                    : `Please enter your ${loginRole.toUpperCase()} credentials to continue.`}
-                </p>
+                <p>Please enter your credentials to continue.</p>
+              </div>
+
+              {/* Role Differentiator Selector */}
+              <div style={{
+                display: 'flex',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.07)',
+                borderRadius: '12px',
+                padding: '4px',
+                marginBottom: '1.5rem',
+                gap: '4px'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginRole('user');
+                    setAuthError('');
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '0.65rem 1rem',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: loginRole === 'user' ? 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)' : 'transparent',
+                    boxShadow: loginRole === 'user' ? '0 4px 15px rgba(186, 84, 245, 0.25)' : 'none',
+                    color: loginRole === 'user' ? '#ffffff' : 'rgba(255, 255, 255, 0.6)',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
+                >
+                  User Mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginRole('admin');
+                    setAuthError('');
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '0.65rem 1rem',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: loginRole === 'admin' ? 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)' : 'transparent',
+                    boxShadow: loginRole === 'admin' ? '0 4px 15px rgba(186, 84, 245, 0.25)' : 'none',
+                    color: loginRole === 'admin' ? '#ffffff' : 'rgba(255, 255, 255, 0.6)',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    cursor: 'pointer',
+                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+                  }}
+                >
+                  Admin Mode
+                </button>
               </div>
 
               {authError && <div className="auth-error">{authError}</div>}
 
-              {!otpStep && (
-                <div className="role-selector">
+              <form className="auth-form" onSubmit={handleAuth}>
+                <div className="auth-form-group">
+                  <input 
+                    className="auth-input"
+                    type="email" 
+                    placeholder="Email Address"
+                    value={authEmail} 
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="auth-form-group" style={{ position: 'relative' }}>
+                  <input 
+                    className="auth-input"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Password" 
+                    value={authPassword} 
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    style={{ paddingRight: '2.5rem' }}
+                    required
+                  />
                   <button 
                     type="button"
-                    className={`role-btn ${loginRole === 'admin' ? 'active' : ''}`}
-                    onClick={() => { setLoginRole('admin'); setAuthEmail(''); setAuthPassword(''); setAuthError(''); }}
+                    onClick={() => setShowPassword(!showPassword)}
+                    style={{
+                      position: 'absolute',
+                      right: '1rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0
+                    }}
                   >
-                    ADMIN
-                  </button>
-                  <button 
-                    type="button"
-                    className={`role-btn ${loginRole === 'user' ? 'active' : ''}`}
-                    onClick={() => { setLoginRole('user'); setAuthEmail(''); setAuthPassword(''); setAuthError(''); }}
-                  >
-                    USER
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-              )}
-
-              <form className="auth-form" onSubmit={handleAuth}>
-                {!otpStep ? (
-                  <>
-                    <div className="auth-form-group">
-                      <input 
-                        className="auth-input"
-                        type="text" 
-                        placeholder={loginRole === 'admin' ? "Admin ID" : "User ID"}
-                        value={authEmail} 
-                        onChange={(e) => setAuthEmail(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="auth-form-group" style={{ position: 'relative' }}>
-                      <input 
-                        className="auth-input"
-                        type={showPassword ? "text" : "password"}
-                        placeholder="password" 
-                        value={authPassword} 
-                        onChange={(e) => setAuthPassword(e.target.value)}
-                        style={{ paddingRight: '2.5rem' }}
-                        required
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        style={{
-                          position: 'absolute',
-                          right: '1rem',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          background: 'none',
-                          border: 'none',
-                          color: '#94a3b8',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: 0
-                        }}
-                      >
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="auth-form-group">
-                    <input 
-                      className="auth-input"
-                      type="text" 
-                      placeholder="Enter 6-digit OTP" 
-                      value={otpCode} 
-                      onChange={(e) => setOtpCode(e.target.value)}
-                      maxLength={6}
-                      style={{ textAlign: 'center', letterSpacing: '4px', fontSize: '1.25rem' }}
-                      required
-                      autoFocus
-                    />
-                  </div>
-                )}
 
                 <div className="auth-submit-row">
-                  {otpStep && (
-                    <button 
-                      type="button" 
-                      className="auth-forgot" 
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                      onClick={() => setOtpStep(false)}
-                    >
-                      ← Back
-                    </button>
-                  )}
                   <button type="submit" className="auth-submit" disabled={isLoading} style={{ marginLeft: 'auto' }}>
-                    {isLoading ? 'WAIT...' : (otpStep ? 'VERIFY OTP' : 'LOGIN')} 
+                    {isLoading ? 'WAIT...' : `LOGIN AS ${loginRole.toUpperCase()}`} 
                     {!isLoading && <span style={{ marginLeft: '4px' }}>→</span>}
                   </button>
                 </div>
               </form>
-
             </div>
           </div>
         </div>
@@ -2265,15 +2376,6 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             title="Go to Dashboard"
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <span style={{ 
-                fontWeight: 800, 
-                fontSize: '1.1rem', 
-                color: '#fff', 
-                letterSpacing: '0.03em',
-                lineHeight: 1.2
-              }}>
-                Purple United <span style={{ color: 'var(--accent-color)' }}>Kids</span>
-              </span>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -2281,12 +2383,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 width: '38px',
                 height: '38px',
                 borderRadius: '8px',
-                background: 'rgba(255, 255, 255, 0.03)',
-                border: '1px solid rgba(255, 255, 255, 0.07)',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+                background: '#4a148c',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                boxShadow: '0 4px 10px rgba(0, 0, 0, 0.15)',
+                transition: 'all 0.2s ease-in-out'
               }}>
-                <GlowingLogoIcon size={24} />
+                <GlowingLogoIcon size={24} white={true} />
               </div>
+              <span style={{ 
+                fontWeight: 800, 
+                fontSize: '1.1rem', 
+                color: '#fff', 
+                letterSpacing: '0.03em',
+                lineHeight: 1.2
+              }}>
+                Purple United <span style={{ color: '#4a148c' }}>Kids</span>
+              </span>
             </div>
             <button 
               className="mobile-menu-btn" 
@@ -2406,6 +2518,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   Push your customer returns report containing items, date_1, channel entry, qty, division, and category.
                 </p>
               </div>
+
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-header">
+                  <h3 className="card-title">Upload Inventory File</h3>
+                </div>
+                <div className="upload-btn-wrapper">
+                  <button className="upload-btn" disabled={isLoading} style={{ background: 'linear-gradient(135deg, #00f2c4 0%, #1d8cf8 100%)', color: '#1d213b' }}>
+                    <UploadCloud size={20} />
+                    {isLoading ? 'Uploading...' : 'Upload Inventory Excel / CSV'}
+                  </button>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleInventoryUpload} disabled={isLoading} />
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                  Push your current inventory report containing item color codes and total inventory quantities.
+                </p>
+              </div>
             </div>
 
             <div className="card">
@@ -2434,13 +2562,20 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     <tbody>
                       {uploadedFiles.map((file) => {
                         const isRet = (file.name || '').startsWith('[RETURN]');
-                        const displayName = isRet ? file.name.replace('[RETURN] ', '') : file.name;
+                        const isInv = (file.name || '').startsWith('[INVENTORY]');
+                        const displayName = isRet 
+                          ? file.name.replace('[RETURN] ', '') 
+                          : isInv 
+                            ? file.name.replace('[INVENTORY] ', '') 
+                            : file.name;
                         return (
                           <tr key={file.id}>
                             <td style={{ fontWeight: 600 }}>{displayName}</td>
                             <td>
                               {isRet ? (
                                 <span style={{ color: '#8965e0', background: 'rgba(137, 101, 224, 0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}>Returns</span>
+                              ) : isInv ? (
+                                <span style={{ color: '#00f2c4', background: 'rgba(0, 242, 196, 0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}>Inventory</span>
                               ) : (
                                 <span style={{ color: '#ba54f5', background: 'rgba(186, 84, 245, 0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 600 }}>Sales</span>
                               )}
@@ -2732,8 +2867,23 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                 {/* Top Selling Items Table */}
                 <div className="card">
-                  <div className="card-header">
-                    <h3 className="card-title">Top Selling Items</h3>
+                  <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <h3 className="card-title" style={{ margin: 0 }}>Top Selling Items</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
+                      <Search size={16} style={{ color: 'var(--text-secondary)' }} />
+                      <input 
+                        type="text"
+                        placeholder="Search SKU..."
+                        value={skuSearchQueryPrev}
+                        onChange={(e) => setSkuSearchQueryPrev(e.target.value)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
+                      />
+                      {skuSearchQueryPrev && (
+                        <button onClick={() => setSkuSearchQueryPrev('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="table-wrapper">
                     <table>
@@ -2908,6 +3058,89 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </th>
                           <th>Total Revenue</th>
                           <th>Avg Selling Price</th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>{latestInventoryData.date ? `Inventory (LU-${formatLUDate(latestInventoryData.date)})` : 'Inventory (LU-N/A)'}</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdownPrev(activeTableFilterDropdownPrev === 'inventory' ? null : 'inventory');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortFieldPrev === 'inventory' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Inventory"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'inventory' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdownPrev === 'inventory' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('inventory');
+                                    setSkuSortDirectionPrev('desc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortFieldPrev('inventory');
+                                    setSkuSortDirectionPrev('asc');
+                                    setActiveTableFilterDropdownPrev(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2920,6 +3153,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                             </td>
                             <td>{formatCurrency(item.revenue)}</td>
                             <td>{formatCurrency(item.revenue / item.units)}</td>
+                            <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                              {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -3559,8 +3795,23 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                 {/* Top Selling Items Table */}
                 <div className="card">
-                  <div className="card-header">
-                    <h3 className="card-title">Top Selling Items</h3>
+                  <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <h3 className="card-title" style={{ margin: 0 }}>Top Selling Items</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
+                      <Search size={16} style={{ color: 'var(--text-secondary)' }} />
+                      <input 
+                        type="text"
+                        placeholder="Search SKU..."
+                        value={skuSearchQuery}
+                        onChange={(e) => setSkuSearchQuery(e.target.value)}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
+                      />
+                      {skuSearchQuery && (
+                        <button onClick={() => setSkuSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="table-wrapper">
                     <table>
@@ -3735,6 +3986,89 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </th>
                           <th>Total Revenue</th>
                           <th>Avg Selling Price</th>
+                          <th style={{ position: 'relative' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
+                              <span>{latestInventoryData.date ? `Inventory (LU-${formatLUDate(latestInventoryData.date)})` : 'Inventory (LU-N/A)'}</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveTableFilterDropdown(activeTableFilterDropdown === 'inventory' ? null : 'inventory');
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: skuSortField === 'inventory' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '2px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  borderRadius: '4px',
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Sort Inventory"
+                              >
+                                <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'inventory' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                              </button>
+                            </div>
+                            {activeTableFilterDropdown === 'inventory' && (
+                              <div 
+                                className="custom-select-options"
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: '50%',
+                                  transform: 'translateX(-50%)',
+                                  zIndex: 50,
+                                  minWidth: '120px',
+                                  marginTop: '4px',
+                                  background: 'var(--card-bg)',
+                                  border: '1px solid var(--card-border)',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
+                                  padding: '4px 0'
+                                }}
+                              >
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'inventory' && skuSortDirection === 'desc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'inventory' && skuSortDirection === 'desc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('inventory');
+                                    setSkuSortDirection('desc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  High to low
+                                </div>
+                                <div 
+                                  className="custom-select-option" 
+                                  style={{ 
+                                    padding: '8px 12px', 
+                                    cursor: 'pointer', 
+                                    fontSize: '0.85rem',
+                                    textAlign: 'left',
+                                    color: skuSortField === 'inventory' && skuSortDirection === 'asc' ? 'var(--accent-color)' : 'var(--text-primary)',
+                                    fontWeight: skuSortField === 'inventory' && skuSortDirection === 'asc' ? '700' : 'normal'
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSkuSortField('inventory');
+                                    setSkuSortDirection('asc');
+                                    setActiveTableFilterDropdown(null);
+                                  }}
+                                >
+                                  Low to high
+                                </div>
+                              </div>
+                            )}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3747,6 +4081,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                             </td>
                             <td>{formatCurrency(item.revenue)}</td>
                             <td>{formatCurrency(item.revenue / item.units)}</td>
+                            <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                              {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

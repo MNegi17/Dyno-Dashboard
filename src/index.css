@@ -1361,6 +1361,10 @@ tr:hover td {
   filter: drop-shadow(0 0 11px rgba(157, 78, 221, 0.75)) !important;
 }
 
+.glowing-logo-init.white-logo:hover {
+  filter: drop-shadow(0 0 11px rgba(255, 255, 255, 0.6)) !important;
+}
+
 /* Glowing Text Avatar Badge & Hover Effects */
 .glowing-text-avatar {
   display: flex;
