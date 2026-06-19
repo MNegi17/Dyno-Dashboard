@@ -299,7 +299,14 @@ function App() {
   const [skuSearchQuery, setSkuSearchQuery] = useState('');
   const [skuSearchQueryPrev, setSkuSearchQueryPrev] = useState('');
 
-  // Sorting & Table Filter States
+  // Intelli Report State
+  const [selectedReportFY, setSelectedReportFY] = useState('2026');
+  const [reportStartMonth, setReportStartMonth] = useState('April');
+  const [reportEndMonth, setReportEndMonth] = useState('May');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [reportError, setReportError] = useState('');
+  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
+
   const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
   const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
   const [activeTableFilterDropdown, setActiveTableFilterDropdown] = useState(null); // 'units' or 'returns' or null
@@ -395,6 +402,100 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const downloadInventorySilently = async (inventoryFiles) => {
+    if (inventoryFiles.length === 0) {
+      setIsInventoryLoading(false);
+      return;
+    }
+    setIsInventoryLoading(true);
+    try {
+      // Load cache
+      let cache = {};
+      const cachedRaw = localStorage.getItem('dyno_inventory_cache');
+      if (cachedRaw) {
+        try {
+          cache = JSON.parse(cachedRaw);
+        } catch (e) {
+          console.error("Failed to parse inventory cache", e);
+        }
+      }
+
+      const updates = {};
+      const missingIds = [];
+
+      // Check which file data is in cache
+      inventoryFiles.forEach(file => {
+        if (cache[file.id]) {
+          updates[file.id] = cache[file.id];
+        } else {
+          missingIds.push(file.id);
+        }
+      });
+
+      // Fetch missing files from Supabase
+      if (missingIds.length > 0) {
+        const batchSize = 15;
+        const batches = [];
+        for (let i = 0; i < missingIds.length; i += batchSize) {
+          batches.push(missingIds.slice(i, i + batchSize));
+        }
+
+        for (const batch of batches) {
+          const { data, error } = await supabase
+            .from('uploaded_files')
+            .select('id, data')
+            .in('id', batch);
+
+          if (!error && data) {
+            data.forEach(item => {
+              if (!item.data) return;
+              const formattedRows = item.data.map(row => ({
+                item_color: row.item_color || 'Unknown',
+                total_inventory: parseFloat(row.total_inventory || row.totalinventory || 0) || 0,
+                is_inventory: true
+              }));
+              updates[item.id] = formattedRows;
+              cache[item.id] = formattedRows; // Add to cache
+            });
+          } else if (error) {
+            console.error("Error fetching inventory batch silently:", error);
+          }
+        }
+
+        // Save updated cache
+        try {
+          localStorage.setItem('dyno_inventory_cache', JSON.stringify(cache));
+        } catch (e) {
+          console.error("Failed to write to inventory cache", e);
+        }
+      }
+
+      // Prune old entries from cache that are no longer in active metadata
+      try {
+        const activeIds = new Set(inventoryFiles.map(f => f.id));
+        let pruned = false;
+        Object.keys(cache).forEach(id => {
+          if (!activeIds.has(id)) {
+            delete cache[id];
+            pruned = true;
+          }
+        });
+        if (pruned) {
+          localStorage.setItem('dyno_inventory_cache', JSON.stringify(cache));
+        }
+      } catch (e) {
+        console.error("Failed to prune inventory cache", e);
+      }
+
+      // Update local state
+      setUploadedFiles(prev => prev.map(f => updates[f.id] ? { ...f, data: updates[f.id] } : f));
+    } catch (err) {
+      console.error("Silent inventory download caught error:", err);
+    } finally {
+      setIsInventoryLoading(false);
+    }
+  };
+
   const fetchData = async () => {
     // 1. Fetch only metadata first (Lightning fast)
     const { data, error } = await supabase.from('uploaded_files').select('id, name, upload_date, record_count').order('upload_date', { ascending: false });
@@ -411,8 +512,14 @@ function App() {
       
       // 2. Start background download
       if (formatted.length > 0) {
-        const filesToDownload = formatted.filter(f => !isFY25File(f.name) || isFY25Loaded);
-        startBackgroundDownload(filesToDownload);
+        const mainFiles = formatted.filter(f => 
+          !isFY25File(f.name) && 
+          !(f.name || '').startsWith('[INVENTORY]')
+        );
+        startBackgroundDownload(mainFiles);
+        
+        const inventoryFiles = formatted.filter(f => (f.name || '').startsWith('[INVENTORY]'));
+        downloadInventorySilently(inventoryFiles);
       }
     } else if (error) {
       console.error("Error fetching metadata.", error);
@@ -593,6 +700,93 @@ function App() {
     setIsFY25Loading(false);
   };
 
+  const validateConsecutiveMonths = (fromMonth, toMonth) => {
+    const months = [
+      "April", "May", "June", "July", "August", "September", "October", "November", "December",
+      "January", "February", "March"
+    ];
+    const fromIdx = months.indexOf(fromMonth);
+    const toIdx = months.indexOf(toMonth);
+    if (fromIdx === -1 || toIdx === -1) return false;
+    return toIdx === (fromIdx + 1) % 12;
+  };
+
+  const monthsList = [
+    "April", "May", "June", "July", "August", "September", "October", "November", "December",
+    "January", "February", "March"
+  ];
+
+  const downloadIntelliReport = async () => {
+    setReportError('');
+    setIsGeneratingReport(true);
+
+    try {
+      const fromIdx = monthsList.indexOf(reportStartMonth);
+      const toIdx = monthsList.indexOf(reportEndMonth);
+      if (fromIdx === -1 || toIdx === -1 || toIdx !== (fromIdx + 1) % 12) {
+        setReportError("Please select exactly 2 consecutive months (e.g. April to May).");
+        setIsGeneratingReport(false);
+        return;
+      }
+
+      const yearStr = selectedReportFY === 'FY25' ? '2025' : '2026';
+      
+      const filteredSales = data.filter(row => {
+        const fy = row.fy || '2026';
+        const m = row.monthName || 'Unknown';
+        return fy === yearStr && (m === reportStartMonth || m === reportEndMonth);
+      });
+
+      const payload = {
+        sales_data: filteredSales.map(row => ({
+          item_color: row.item_color || 'Unknown',
+          priceVal: row.priceVal || 0,
+          monthName: row.monthName || 'Unknown',
+          division: row.division || 'Unknown',
+          categories: row.categories || 'Unknown'
+        })),
+        inventory_data: latestInventoryData.map,
+        start_month: reportStartMonth,
+        end_month: reportEndMonth,
+        year: yearStr
+      };
+
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const apiEndpoint = isLocal 
+        ? 'http://localhost:5001/api/generate_report'
+        : 'https://YOUR_BACKEND_URL.onrender.com/api/generate_report';
+
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || `HTTP error ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Intelli_Inventory_Report_${selectedReportFY}_${reportStartMonth}_${reportEndMonth}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error(err);
+      setReportError(err.message || "Failed to generate report. Make sure local Python server is running.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   const handleAuth = async (e) => {
     e.preventDefault();
     setAuthError('');
@@ -663,9 +857,16 @@ function App() {
     const sorted = [...invFiles].sort((a, b) => b.uploadDate - a.uploadDate);
     const latestFile = sorted[0];
     
-    const latestTime = latestFile.uploadDate.getTime();
-    const threshold = 10 * 1000;
-    const group = sorted.filter(f => Math.abs(f.uploadDate.getTime() - latestTime) < threshold);
+    // Extract base name, e.g. "Current Inventory.xlsx" from "[INVENTORY] Current Inventory.xlsx (Part 1/10)"
+    const getBaseName = (name) => {
+      if (!name) return "";
+      let base = name.replace(/^\[INVENTORY\]\s*/i, "");
+      base = base.replace(/\s*\(Part\s+\d+\/\d+\)$/i, "");
+      return base.trim();
+    };
+    
+    const latestBase = getBaseName(latestFile.name);
+    const group = sorted.filter(f => getBaseName(f.name) === latestBase);
     
     const map = {};
     group.forEach(file => {
@@ -1033,6 +1234,23 @@ function App() {
       }
 
       setIsLoading(true);
+      
+      // Clear local state of old inventory files immediately
+      setUploadedFiles(prev => prev.filter(f => !(f.name || '').startsWith('[INVENTORY]')));
+      
+      // Automatically clear out any old inventory files from database first
+      const { error: deleteError } = await supabase
+        .from('uploaded_files')
+        .delete()
+        .like('name', '[INVENTORY]%');
+        
+      if (deleteError) {
+        console.error("Error clearing old inventory files:", deleteError);
+        alert(`Failed to delete previous inventory data: ${deleteError.message}`);
+        setIsLoading(false);
+        return;
+      }
+
       let success = true;
       let errorMessage = "";
 
@@ -2424,9 +2642,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Layers size={20} />
               <span>Product Level</span>
             </div>
-            <div className={`nav-item ${activePage === 'growth' ? 'active' : ''}`} onClick={() => { setActivePage('growth'); setIsMobileMenuOpen(false); }}>
-              <TrendingUp size={20} />
-              <span>MoM Growth</span>
+            <div className={`nav-item ${activePage === 'intelli_report' ? 'active' : ''}`} onClick={() => { setActivePage('intelli_report'); setIsMobileMenuOpen(false); }}>
+              <Cpu size={20} />
+              <span>Intelli Report</span>
             </div>
             <div className={`nav-item ${activePage === 'goals' ? 'active' : ''}`} onClick={() => { setActivePage('goals'); setIsMobileMenuOpen(false); }}>
               <Target size={20} />
@@ -2469,7 +2687,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
               {activePage === 'product_level' && 'Product Level Analysis'}
-              {activePage === 'growth' && 'Month-over-Month Growth'}
+              {activePage === 'intelli_report' && 'Intelli Report'}
               {activePage === 'goals' && 'Target & Goal Tracking'}
               {activePage === 'previous_years' && 'Previous Years Performance'}
             </h1>
@@ -3203,7 +3421,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             )}
 
             {/* Global Filters */}
-            {activePage !== 'raw_files' && activePage !== 'growth' && activePage !== 'previous_years' && (
+            {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="filters-container">
                 {activePage !== 'goals' && (
                   <CustomSelect 
@@ -4140,8 +4358,179 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </div>
               </div>
             )}
+            {activePage === 'intelli_report' && (
+              <div className="dashboard-content">
+                <div className="card" style={{ marginBottom: '2rem', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ padding: '0.75rem', background: 'rgba(186, 84, 245, 0.1)', borderRadius: '12px', color: 'var(--accent-color)' }}>
+                      <Cpu size={32} />
+                    </div>
+                    <div>
+                      <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>Intelli Inventory Report</h2>
+                      <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
+                        Generate intelligent inventory replenishment data, bestselling analysis, and full stock listings.
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-            {activePage === 'growth' && (
+                <div className="dashboard-grid" style={{ gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem' }}>
+                  <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+                      Report Configuration
+                    </h3>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Financial Year Selector */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Financial Year</label>
+                        <CustomSelect 
+                          value={selectedReportFY === 'FY25' ? 'FY25 (2024-25)' : 'FY26 (2025-26)'} 
+                          options={['FY25 (2024-25)', 'FY26 (2025-26)']} 
+                          onChange={(val) => {
+                            setSelectedReportFY(val.startsWith('FY25') ? 'FY25' : 'FY26');
+                          }} 
+                          placeholder="Select Year" 
+                        />
+                      </div>
+
+                      {/* Month Selectors */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>From Month</label>
+                          <CustomSelect 
+                            value={reportStartMonth} 
+                            options={monthsList} 
+                            onChange={(val) => {
+                              setReportStartMonth(val);
+                              // Automatically set reportEndMonth to the next month to assist the user
+                              const idx = monthsList.indexOf(val);
+                              if (idx !== -1) {
+                                setReportEndMonth(monthsList[(idx + 1) % 12]);
+                              }
+                            }} 
+                            placeholder="Start Month" 
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>To Month</label>
+                          <CustomSelect 
+                            value={reportEndMonth} 
+                            options={monthsList} 
+                            onChange={(val) => {
+                              setReportEndMonth(val);
+                            }} 
+                            placeholder="End Month" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Validation Warnings / Error Messages */}
+                    {reportError && (
+                      <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', color: '#ef4444', fontSize: '0.9rem' }}>
+                        {reportError}
+                      </div>
+                    )}
+
+                    {!validateConsecutiveMonths(reportStartMonth, reportEndMonth) && (
+                      <div style={{ padding: '0.75rem 1rem', background: 'rgba(255, 141, 114, 0.08)', border: '1px solid rgba(255, 141, 114, 0.15)', borderRadius: '8px', color: '#ff8d72', fontSize: '0.85rem' }}>
+                        Please select exactly a 2-month range (e.g. April to May, Dec to Jan).
+                      </div>
+                    )}
+
+                    {selectedReportFY === 'FY25' && !isFY25Loaded && (
+                      <div style={{ padding: '1rem', background: 'rgba(255, 141, 114, 0.08)', border: '1px solid rgba(255, 141, 114, 0.15)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#ff8d72' }}>
+                          FY25 historical database has not been loaded into local memory yet.
+                        </p>
+                        {isFY25Loading ? (
+                          <div style={{ width: '100%' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                              <span>Downloading database...</span>
+                              <span>{fy25Progress.current} / {fy25Progress.total} files</span>
+                            </div>
+                            <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${fy25Progress.total > 0 ? (fy25Progress.current / fy25Progress.total) * 100 : 0}%`, background: 'var(--accent-color)', transition: 'width 0.3s ease' }}></div>
+                            </div>
+                          </div>
+                        ) : (
+                          <button 
+                            onClick={loadFY25Data} 
+                            className="upload-btn" 
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', alignSelf: 'flex-start' }}
+                          >
+                            Load FY25 Database
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {isInventoryLoading && (
+                      <div style={{ padding: '0.75rem 1rem', background: 'rgba(0, 242, 196, 0.08)', border: '1px solid rgba(0, 242, 196, 0.15)', borderRadius: '8px', color: '#00f2c4', fontSize: '0.85rem' }}>
+                        Loading current inventory silently in the background...
+                      </div>
+                    )}
+
+                    {/* Download Button */}
+                    <button 
+                      onClick={downloadIntelliReport}
+                      disabled={isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)}
+                      className="upload-btn" 
+                      style={{ 
+                        marginTop: '1rem', 
+                        fontSize: '1.05rem', 
+                        padding: '0.85rem 2rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        opacity: (isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ? 0.5 : 1,
+                        cursor: (isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      {isGeneratingReport ? 'Generating Report...' : isInventoryLoading ? 'Loading Inventory...' : 'Download Intelligent Report'}
+                    </button>
+                  </div>
+
+                  <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+                      What's inside the report?
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                        <div>
+                          <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 1: Inventory Levels</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>All active SKUs in stock sorted from highest to lowest stock counts.</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                        <div>
+                          <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 2: Bestselling Analysis</strong>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>Bestselling items for the selected 2-month span, showing units sold, revenue, and matching inventory levels.</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Sheet 3: Alarming Stock Replenishment</strong>
+                            <span style={{ background: 'rgba(186, 84, 245, 0.15)', color: 'var(--accent-color)', fontSize: '0.75rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>Python Powered</span>
+                          </div>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                            Highlights items in high demand (sales velocity) with critically low inventory. Provides Days of Cover (DOC) and recommended replenishment order quantities.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {false && (
               <div className="dashboard-content">
                 {!momData ? (
                    <div className="empty-state" style={{ height: '300px' }}>

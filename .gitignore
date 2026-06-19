@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Excel spreadsheet files and temporary Excel locks
+*.xlsx
+~$*.xlsx
