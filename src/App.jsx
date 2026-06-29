@@ -267,6 +267,17 @@ const getRoleFromEmail = (email) => {
 };
 
 function App() {
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [session, setSession] = useState(() => {
     const saved = localStorage.getItem('dyno_session');
     return saved ? JSON.parse(saved) : null;
@@ -2298,7 +2309,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         </div>
 
         {/* Purple United Kids Logo - Top Left */}
-        <div style={{ 
+        <div className="login-brand-left-mobile-hide" style={{ 
           position: 'absolute', 
           top: '1.5rem', 
           left: '1.5rem', 
@@ -2345,7 +2356,6 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         </div>
         <div className="auth-card">
           <div className="auth-graphic" style={{
-            display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
             padding: '3.5rem 3rem',
@@ -3041,7 +3051,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">Top Channels ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <BarChart data={prevChartsData.channelData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" horizontal={false} />
                             <XAxis type="number" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -3071,26 +3081,26 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">{insightType === 'revenue' ? 'Revenue by Division' : 'Units by Division'}</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <PieChart>
-                             <Pie
-                               data={prevChartsData.divisionData}
-                               cx="50%"
-                               cy="50%"
-                               innerRadius={45}
-                               outerRadius={90}
-                               paddingAngle={5}
-                               dataKey="value"
-                               activeShape={renderActiveShape}
-                               style={{ cursor: 'pointer' }}
-                             >
-                               {prevChartsData.divisionData.map((entry, index) => {
-                                 const name = (entry.name || '').toLowerCase();
-                                 const isFootwear = name.includes('footwear');
-                                 const fill = isFootwear ? '#00f2c4' : '#ba54f5';
-                                 return <Cell key={`cell-${index}`} fill={fill} />;
-                               })}
-                             </Pie>
+                            <Pie
+                              data={prevChartsData.divisionData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={isMobile ? 35 : 45}
+                              outerRadius={isMobile ? 70 : 90}
+                              paddingAngle={5}
+                              dataKey="value"
+                              activeShape={renderActiveShape}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {prevChartsData.divisionData.map((entry, index) => {
+                                const name = (entry.name || '').toLowerCase();
+                                const isFootwear = name.includes('footwear');
+                                const fill = isFootwear ? '#00f2c4' : '#ba54f5';
+                                return <Cell key={`cell-${index}`} fill={fill} />;
+                              })}
+                            </Pie>
                             <Tooltip content={<CustomTooltip />} cursor={false} />
                             <Legend 
                               formatter={(value) => {
@@ -3100,8 +3110,8 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 return (
                                   <span style={{ 
                                     color: '#ffffff', 
-                                    fontSize: '18px', 
-                                    fontWeight: '800', 
+                                    fontSize: 'var(--legend-font-size, 18px)', 
+                                    fontWeight: 'var(--legend-font-weight, 800)', 
                                     marginLeft: '8px',
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.03em'
@@ -3124,7 +3134,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">Top Categories ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <BarChart data={prevChartsData.categoryData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
                             <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -3722,7 +3732,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </div>
                     </div>
                     <div style={{ height: '400px', marginTop: '2rem' }}>
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                         <BarChart data={productSizeData.sizes} layout="vertical" margin={{ left: 40, right: 40 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                           <XAxis type="number" hide />
@@ -3868,7 +3878,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </div>
                     </div>
                     <div style={{ height: '400px', marginTop: '2rem' }}>
-                      <ResponsiveContainer width="100%" height="100%">
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                         <BarChart data={productChannelReturnData.channels} layout="vertical" margin={{ left: 40, right: 40 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                           <XAxis type="number" hide />
@@ -3973,7 +3983,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">Top Channels ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <BarChart data={chartsData.channelData} layout="vertical" margin={{ top: 5, right: 30, left: 40, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" horizontal={false} />
                             <XAxis type="number" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -4003,27 +4013,26 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">{insightType === 'revenue' ? 'Revenue by Division' : 'Units by Division'}</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <PieChart>
-                             <Pie
-                               data={chartsData.divisionData}
-                               cx="50%"
-                               cy="50%"
-                               innerRadius={45}
-                               outerRadius={90}
-                               paddingAngle={5}
-                               dataKey="value"
-                               activeShape={renderActiveShape}
-                               style={{ cursor: 'pointer' }}
-                             >
-                               {chartsData.divisionData.map((entry, index) => {
-                                 const name = (entry.name || '').toLowerCase();
-                                 const isFootwear = name.includes('footwear');
-                                 // Footwear = Vibrant Green, Apparel = Vibrant Orchid Purple
-                                 const fill = isFootwear ? '#00f2c4' : '#ba54f5';
-                                 return <Cell key={`cell-${index}`} fill={fill} />;
-                               })}
-                             </Pie>
+                            <Pie
+                              data={chartsData.divisionData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={isMobile ? 35 : 45}
+                              outerRadius={isMobile ? 70 : 90}
+                              paddingAngle={5}
+                              dataKey="value"
+                              activeShape={renderActiveShape}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {chartsData.divisionData.map((entry, index) => {
+                                const name = (entry.name || '').toLowerCase();
+                                const isFootwear = name.includes('footwear');
+                                const fill = isFootwear ? '#00f2c4' : '#ba54f5';
+                                return <Cell key={`cell-${index}`} fill={fill} />;
+                              })}
+                            </Pie>
                             <Tooltip content={<CustomTooltip />} cursor={false} />
                             <Legend 
                               formatter={(value) => {
@@ -4033,8 +4042,8 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 return (
                                   <span style={{ 
                                     color: '#ffffff', 
-                                    fontSize: '18px', 
-                                    fontWeight: '800', 
+                                    fontSize: 'var(--legend-font-size, 18px)', 
+                                    fontWeight: 'var(--legend-font-weight, 800)', 
                                     marginLeft: '8px',
                                     textTransform: 'uppercase',
                                     letterSpacing: '0.03em'
@@ -4057,7 +4066,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <h3 className="card-title">Top Categories ({insightType === 'revenue' ? 'Revenue' : 'Units'})</h3>
                       </div>
                       <div style={{ height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <BarChart data={chartsData.categoryData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
                             <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -4391,7 +4400,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     <h3 className="card-title">{insightType === 'revenue' ? 'Revenue Trend over Time' : 'Units Sold Trend over Time'}</h3>
                   </div>
                   <div style={{ height: 350 }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <LineChart data={chartsData.dateData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
                         <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -4413,7 +4422,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     <h3 className="card-title">Average Selling Price (ASP) Trend</h3>
                   </div>
                   <div style={{ height: 350 }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <LineChart data={chartsData.dateData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" vertical={false} />
                         <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)'}} />
@@ -4450,7 +4459,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   </div>
                 </div>
 
-                <div className="dashboard-grid" style={{ gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem' }}>
+                <div className="dashboard-grid grid-split-12-08" style={{ gap: '2rem' }}>
                   <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
                       Report Configuration
@@ -4486,7 +4495,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                       {/* Month Selectors based on Report Type */}
                       {reportType === 'inventory' ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="grid-split-2" style={{ display: 'grid', gap: '1rem' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>From Month</label>
                             <CustomSelect 
@@ -4699,7 +4708,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <p style={{ color: 'var(--text-secondary)' }}>Comparing <strong>{momData.currentMonth}</strong> against <strong>{momData.prevMonth}</strong></p>
                     </div>
 
-                    <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    <div className="dashboard-grid grid-split-2">
                       <div className="card metric-card" style={{ flexDirection: 'column', alignItems: 'flex-start', padding: '2rem' }}>
                         <h3 style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontWeight: 600 }}>Total Revenue Growth</h3>
                         <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem' }}>
@@ -4787,7 +4796,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </div>
 
                 {goalMetrics ? (
-                  <div className="dashboard-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <div className="dashboard-grid grid-split-2">
                     {/* Revenue Goal */}
                     <div className="card metric-card goal-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', marginBottom: '1rem' }}>

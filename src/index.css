@@ -1464,4 +1464,109 @@ tr:hover td {
   box-shadow: 0 6px 20px rgba(186, 84, 245, 0.6);
 }
 
+/* ==========================================================================
+   Mobile UI Responsive Adjustments (For Mobile Viewports Only)
+   ========================================================================== */
+
+:root {
+  --legend-font-size: 18px;
+  --legend-font-weight: 800;
+}
+
+/* Base Grid Splits for Desktop */
+.grid-split-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.grid-split-12-08 {
+  grid-template-columns: 1.2fr 0.8fr;
+}
+
+/* Recharts General Ticks Styling */
+.recharts-cartesian-axis-tick-value {
+  font-size: 11px !important;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --legend-font-size: 11px;
+    --legend-font-weight: 700;
+  }
+
+  .recharts-cartesian-axis-tick-value {
+    font-size: 9px !important;
+  }
+
+  /* Force stack on mobile using display: flex to completely bypass CSS grid conflicts */
+  .dashboard-grid.grid-split-2,
+  .grid-split-2,
+  .dashboard-grid.grid-split-12-08,
+  .grid-split-12-08 {
+    display: flex !important;
+    flex-direction: column !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Main chart grid layout stacking & scroll prevention */
+  .chart-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+
+  .full-width-chart {
+    grid-column: span 1 !important;
+  }
+
+  /* Responsive login adjustments */
+  .auth-container {
+    padding: 1rem !important;
+  }
+
+  .auth-card {
+    margin: 0 !important;
+    min-height: auto !important;
+    max-width: 100% !important;
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  .auth-form-container {
+    padding: 2.25rem 1.5rem !important;
+  }
+
+  .login-brand-left-mobile-hide {
+    display: none !important;
+  }
+
+  .login-brand-wrapper.right {
+    top: 1rem !important;
+    right: 1rem !important;
+  }
+
+  /* Sidebar brand header tweaks on mobile */
+  .brand {
+    font-size: 1.2rem !important;
+    padding: 0.25rem 0 !important;
+  }
+
+  /* Reduce margins and paddings for cards on mobile to prevent squishing */
+  .card {
+    padding: 1.25rem !important;
+  }
+
+  .card-header {
+    margin-bottom: 1rem !important;
+  }
+
+  .card-title {
+    font-size: 1.1rem !important;
+  }
+
+  /* Adjust Recharts legends and tooltip overlap spacing */
+  .recharts-legend-wrapper {
+    position: relative !important;
+    padding-top: 0.5rem !important;
+  }
+}
+
+
 
