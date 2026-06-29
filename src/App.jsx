@@ -756,7 +756,7 @@ function App() {
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const apiEndpoint = isLocal 
         ? 'http://localhost:5001/api/generate_report'
-        : 'https://YOUR_BACKEND_URL.onrender.com/api/generate_report';
+        : 'https://dyno-dashboard.onrender.com/api/generate_report';
 
       const response = await fetch(apiEndpoint, {
         method: 'POST',
@@ -826,7 +826,7 @@ function App() {
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const apiEndpoint = isLocal 
         ? 'http://localhost:5001/api/generate_weekly_business_report'
-        : 'https://YOUR_BACKEND_URL.onrender.com/api/generate_weekly_business_report';
+        : 'https://dyno-dashboard.onrender.com/api/generate_weekly_business_report';
 
       const response = await fetch(apiEndpoint, {
         method: 'POST',
