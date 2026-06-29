@@ -234,6 +234,243 @@ def generate_report():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/generate_weekly_business_report', methods=['POST'])
+def generate_weekly_business_report():
+    try:
+        payload = request.json
+        if not payload:
+            return jsonify({"error": "No JSON payload provided"}), 400
+
+        sales_list = payload.get('sales_data', [])
+        returns_list = payload.get('returns_data', [])
+        month = payload.get('month', 'June')
+        year = payload.get('year', '2026')
+        year_label = f"FY{year[-2:]}" if year else "FY26"
+
+        # Create DataFrames
+        sales_df = pd.DataFrame(sales_list)
+        returns_df = pd.DataFrame(returns_list)
+
+        def get_week_num(day):
+            if day <= 7: return 1
+            elif day <= 14: return 2
+            elif day <= 21: return 3
+            elif day <= 28: return 4
+            else: return 5
+
+        channel_stats = {}
+
+        unique_channels = set()
+        if not sales_df.empty and 'channel_name' in sales_df.columns:
+            unique_channels.update(sales_df['channel_name'].dropna().unique())
+        if not returns_df.empty and 'channel_name' in returns_df.columns:
+            unique_channels.update(returns_df['channel_name'].dropna().unique())
+
+        for channel in unique_channels:
+            channel_stats[channel] = {
+                'Channel': channel,
+                'W1 Sales Qty': 0, 'W1 Sales Value': 0.0, 'W1 Returns Qty': 0,
+                'W2 Sales Qty': 0, 'W2 Sales Value': 0.0, 'W2 Returns Qty': 0,
+                'W3 Sales Qty': 0, 'W3 Sales Value': 0.0, 'W3 Returns Qty': 0,
+                'W4 Sales Qty': 0, 'W4 Sales Value': 0.0, 'W4 Returns Qty': 0,
+                'W5 Sales Qty': 0, 'W5 Sales Value': 0.0, 'W5 Returns Qty': 0,
+                'Monthly Sales Qty': 0, 'Monthly Sales Value': 0.0, 'Monthly Returns Qty': 0
+            }
+
+        # Process sales
+        if not sales_df.empty:
+            sales_df['date_dt'] = pd.to_datetime(sales_df['parsedDate'], errors='coerce')
+            sales_df['day'] = sales_df['date_dt'].dt.day
+            sales_df = sales_df.dropna(subset=['day'])
+            sales_df['week'] = sales_df['day'].apply(get_week_num)
+
+            for _, row in sales_df.iterrows():
+                ch = row['channel_name']
+                w = int(row['week'])
+                val = float(row.get('priceVal', 0) or 0)
+                if ch in channel_stats:
+                    channel_stats[ch][f'W{w} Sales Qty'] += 1
+                    channel_stats[ch][f'W{w} Sales Value'] += val
+                    channel_stats[ch]['Monthly Sales Qty'] += 1
+                    channel_stats[ch]['Monthly Sales Value'] += val
+
+        # Process returns
+        if not returns_df.empty:
+            returns_df['date_dt'] = pd.to_datetime(returns_df['parsedDate'], errors='coerce')
+            returns_df['day'] = returns_df['date_dt'].dt.day
+            returns_df = returns_df.dropna(subset=['day'])
+            returns_df['week'] = returns_df['day'].apply(get_week_num)
+
+            for _, row in returns_df.iterrows():
+                ch = row['channel_name']
+                w = int(row['week'])
+                qty = float(row.get('return_qty', 0) or 0)
+                if ch in channel_stats:
+                    channel_stats[ch][f'W{w} Returns Qty'] += qty
+                    channel_stats[ch]['Monthly Returns Qty'] += qty
+
+        records = list(channel_stats.values())
+        if not records:
+            df = pd.DataFrame(columns=[
+                'Channel',
+                'W1 Sales Qty', 'W1 Sales Value', 'W1 Returns Qty',
+                'W2 Sales Qty', 'W2 Sales Value', 'W2 Returns Qty',
+                'W3 Sales Qty', 'W3 Sales Value', 'W3 Returns Qty',
+                'W4 Sales Qty', 'W4 Sales Value', 'W4 Returns Qty',
+                'W5 Sales Qty', 'W5 Sales Value', 'W5 Returns Qty',
+                'Monthly Sales Qty', 'Monthly Sales Value', 'Monthly Returns Qty'
+            ])
+        else:
+            df = pd.DataFrame(records)
+            df = df.sort_values(by='Monthly Sales Value', ascending=False)
+
+        output = io.BytesIO()
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Weekly Business Report"
+        ws.views.sheetView[0].showGridLines = True
+
+        purple_header_fill = PatternFill(start_color="4A148C", end_color="4A148C", fill_type="solid")
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        regular_font = Font(name="Calibri", size=11)
+        bold_font = Font(name="Calibri", size=11, bold=True)
+        thin_side = Side(border_style="thin", color="E0E0E0")
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        ws.row_dimensions[1].height = 24
+        ws.row_dimensions[2].height = 24
+
+        ws.merge_cells('A1:A2')
+        ws.cell(row=1, column=1, value="Channel")
+
+        ws.merge_cells('B1:D1')
+        ws.cell(row=1, column=2, value="Week 1 (Days 1-7)")
+
+        ws.merge_cells('E1:G1')
+        ws.cell(row=1, column=5, value="Week 2 (Days 8-14)")
+
+        ws.merge_cells('H1:J1')
+        ws.cell(row=1, column=8, value="Week 3 (Days 15-21)")
+
+        ws.merge_cells('K1:M1')
+        ws.cell(row=1, column=11, value="Week 4 (Days 22-28)")
+
+        ws.merge_cells('N1:P1')
+        ws.cell(row=1, column=14, value="Week 5 (Days 29+)")
+
+        ws.merge_cells('Q1:S1')
+        ws.cell(row=1, column=17, value="Total Monthly Performance")
+
+        for col in range(1, 20):
+            cell = ws.cell(row=1, column=col)
+            cell.fill = purple_header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        sub_headers = [
+            ("Channel", 1),
+            ("Sales (Qty)", 2), ("Sales (Value)", 3), ("Returns (Qty)", 4),
+            ("Sales (Qty)", 5), ("Sales (Value)", 6), ("Returns (Qty)", 7),
+            ("Sales (Qty)", 8), ("Sales (Value)", 9), ("Returns (Qty)", 10),
+            ("Sales (Qty)", 11), ("Sales (Value)", 12), ("Returns (Qty)", 13),
+            ("Sales (Qty)", 14), ("Sales (Value)", 15), ("Returns (Qty)", 16),
+            ("Sales (Qty)", 17), ("Sales (Value)", 18), ("Returns (Qty)", 19),
+        ]
+
+        for label, col_idx in sub_headers:
+            cell = ws.cell(row=2, column=col_idx)
+            if col_idx > 1:
+                cell.value = label
+            cell.fill = purple_header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        current_row = 3
+        for _, r_data in df.iterrows():
+            ws.row_dimensions[current_row].height = 20
+            cell_ch = ws.cell(row=current_row, column=1, value=r_data['Channel'])
+            cell_ch.font = regular_font
+            cell_ch.alignment = Alignment(horizontal="left", vertical="center")
+            cell_ch.border = thin_border
+
+            cols = [
+                'W1 Sales Qty', 'W1 Sales Value', 'W1 Returns Qty',
+                'W2 Sales Qty', 'W2 Sales Value', 'W2 Returns Qty',
+                'W3 Sales Qty', 'W3 Sales Value', 'W3 Returns Qty',
+                'W4 Sales Qty', 'W4 Sales Value', 'W4 Returns Qty',
+                'W5 Sales Qty', 'W5 Sales Value', 'W5 Returns Qty',
+                'Monthly Sales Qty', 'Monthly Sales Value', 'Monthly Returns Qty'
+            ]
+            for idx, col_name in enumerate(cols):
+                col_idx = idx + 2
+                val = r_data[col_name]
+                cell = ws.cell(row=current_row, column=col_idx, value=val)
+                cell.font = regular_font
+                cell.border = thin_border
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                
+                if "Value" in col_name:
+                    cell.number_format = '₹#,##0.00'
+                else:
+                    cell.number_format = '#,##0'
+            current_row += 1
+
+        ws.row_dimensions[current_row].height = 22
+        cell_total_label = ws.cell(row=current_row, column=1, value="Total")
+        cell_total_label.font = bold_font
+        cell_total_label.alignment = Alignment(horizontal="left", vertical="center")
+        
+        double_bottom_border = Border(
+            left=thin_side, right=thin_side,
+            top=thin_side,
+            bottom=Side(border_style="double", color="4A148C")
+        )
+        cell_total_label.border = double_bottom_border
+
+        for col_idx in range(2, 20):
+            col_letter = get_column_letter(col_idx)
+            formula = f"=SUM({col_letter}3:{col_letter}{current_row-1})"
+            cell = ws.cell(row=current_row, column=col_idx, value=formula)
+            cell.font = bold_font
+            cell.border = double_bottom_border
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+            
+            if col_idx in [3, 6, 9, 12, 15, 18]:
+                cell.number_format = '₹#,##0.00'
+            else:
+                cell.number_format = '#,##0'
+
+        for col_idx in range(1, 20):
+            col_letter = get_column_letter(col_idx)
+            max_len = 0
+            for r in range(2, current_row + 1):
+                val = ws.cell(row=r, column=col_idx).value
+                if val is not None:
+                    val_str = str(val)
+                    if val_str.startswith('='):
+                        val_str = "12,345.00"
+                    elif col_idx in [3, 6, 9, 12, 15, 18] and r >= 3:
+                        val_str = f"₹{val_str}"
+                    if len(val_str) > max_len:
+                        max_len = len(val_str)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
+
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"Weekly_Business_Report_{year_label}_{month}.xlsx"
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5001))

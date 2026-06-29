@@ -306,6 +306,8 @@ function App() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState('');
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
+  const [reportType, setReportType] = useState('inventory'); // 'inventory' or 'business'
+  const [selectedReportMonth, setSelectedReportMonth] = useState('June');
 
   const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
   const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
@@ -774,6 +776,76 @@ function App() {
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `Intelli_Inventory_Report_${selectedReportFY}_${reportStartMonth}_${reportEndMonth}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+    } catch (err) {
+      console.error(err);
+      setReportError(err.message || "Failed to generate report. Make sure local Python server is running.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const downloadWeeklyBusinessReport = async () => {
+    setReportError('');
+    setIsGeneratingReport(true);
+
+    try {
+      const yearStr = selectedReportFY === 'FY25' ? '2025' : '2026';
+      
+      const filteredSales = data.filter(row => {
+        const fy = row.fy || '2026';
+        const m = row.monthName || 'Unknown';
+        return fy === yearStr && m === selectedReportMonth;
+      });
+
+      const filteredReturns = returnData.filter(row => {
+        const fy = row.fy || '2026';
+        const m = row.monthName || 'Unknown';
+        return fy === yearStr && m === selectedReportMonth;
+      });
+
+      const payload = {
+        sales_data: filteredSales.map(row => ({
+          parsedDate: row.parsedDate,
+          priceVal: row.priceVal || 0,
+          channel_name: row.channel_name || 'Unknown'
+        })),
+        returns_data: filteredReturns.map(row => ({
+          parsedDate: row.parsedDate,
+          return_qty: row.return_qty || 0,
+          channel_name: row.channel_name || 'Unknown'
+        })),
+        month: selectedReportMonth,
+        year: yearStr
+      };
+
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const apiEndpoint = isLocal 
+        ? 'http://localhost:5001/api/generate_weekly_business_report'
+        : 'https://YOUR_BACKEND_URL.onrender.com/api/generate_weekly_business_report';
+
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || `HTTP error ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Weekly_Business_Report_${selectedReportFY}_${selectedReportMonth}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -4366,9 +4438,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <Cpu size={32} />
                     </div>
                     <div>
-                      <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>Intelli Inventory Report</h2>
+                      <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>
+                        {reportType === 'inventory' ? 'Intelli Inventory Report' : 'Weekly Business Intelli Report'}
+                      </h2>
                       <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
-                        Generate intelligent inventory replenishment data, bestselling analysis, and full stock listings.
+                        {reportType === 'inventory' 
+                          ? 'Generate intelligent inventory replenishment data, bestselling analysis, and full stock listings.'
+                          : 'Generate channel-wise weekly sales and return statistics for a single month performance review.'}
                       </p>
                     </div>
                   </div>
@@ -4381,6 +4457,20 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </h3>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                      {/* Report Type Selector */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Report Type</label>
+                        <CustomSelect 
+                          value={reportType === 'inventory' ? 'Intelli Inventory Report' : 'Weekly Business Intelli Report'} 
+                          options={['Intelli Inventory Report', 'Weekly Business Intelli Report']} 
+                          onChange={(val) => {
+                            setReportType(val === 'Intelli Inventory Report' ? 'inventory' : 'business');
+                            setReportError('');
+                          }} 
+                          placeholder="Select Report Type" 
+                        />
+                      </div>
+
                       {/* Financial Year Selector */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Financial Year</label>
@@ -4394,37 +4484,51 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         />
                       </div>
 
-                      {/* Month Selectors */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>From Month</label>
-                          <CustomSelect 
-                            value={reportStartMonth} 
-                            options={monthsList} 
-                            onChange={(val) => {
-                              setReportStartMonth(val);
-                              // Automatically set reportEndMonth to the next month to assist the user
-                              const idx = monthsList.indexOf(val);
-                              if (idx !== -1) {
-                                setReportEndMonth(monthsList[(idx + 1) % 12]);
-                              }
-                            }} 
-                            placeholder="Start Month" 
-                          />
-                        </div>
+                      {/* Month Selectors based on Report Type */}
+                      {reportType === 'inventory' ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>From Month</label>
+                            <CustomSelect 
+                              value={reportStartMonth} 
+                              options={monthsList} 
+                              onChange={(val) => {
+                                setReportStartMonth(val);
+                                // Automatically set reportEndMonth to the next month to assist the user
+                                const idx = monthsList.indexOf(val);
+                                if (idx !== -1) {
+                                  setReportEndMonth(monthsList[(idx + 1) % 12]);
+                                }
+                              }} 
+                              placeholder="Start Month" 
+                            />
+                          </div>
 
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>To Month</label>
+                            <CustomSelect 
+                              value={reportEndMonth} 
+                              options={monthsList} 
+                              onChange={(val) => {
+                                setReportEndMonth(val);
+                              }} 
+                              placeholder="End Month" 
+                            />
+                          </div>
+                        </div>
+                      ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>To Month</label>
+                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Month</label>
                           <CustomSelect 
-                            value={reportEndMonth} 
+                            value={selectedReportMonth} 
                             options={monthsList} 
                             onChange={(val) => {
-                              setReportEndMonth(val);
+                              setSelectedReportMonth(val);
                             }} 
-                            placeholder="End Month" 
+                            placeholder="Select Month" 
                           />
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Validation Warnings / Error Messages */}
@@ -4434,7 +4538,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </div>
                     )}
 
-                    {!validateConsecutiveMonths(reportStartMonth, reportEndMonth) && (
+                    {reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth) && (
                       <div style={{ padding: '0.75rem 1rem', background: 'rgba(255, 141, 114, 0.08)', border: '1px solid rgba(255, 141, 114, 0.15)', borderRadius: '8px', color: '#ff8d72', fontSize: '0.85rem' }}>
                         Please select exactly a 2-month range (e.g. April to May, Dec to Jan).
                       </div>
@@ -4467,7 +4571,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </div>
                     )}
 
-                    {isInventoryLoading && (
+                    {reportType === 'inventory' && isInventoryLoading && (
                       <div style={{ padding: '0.75rem 1rem', background: 'rgba(0, 242, 196, 0.08)', border: '1px solid rgba(0, 242, 196, 0.15)', borderRadius: '8px', color: '#00f2c4', fontSize: '0.85rem' }}>
                         Loading current inventory silently in the background...
                       </div>
@@ -4475,8 +4579,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                     {/* Download Button */}
                     <button 
-                      onClick={downloadIntelliReport}
-                      disabled={isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)}
+                      onClick={reportType === 'inventory' ? downloadIntelliReport : downloadWeeklyBusinessReport}
+                      disabled={
+                        isGeneratingReport || 
+                        (reportType === 'inventory' && isInventoryLoading) || 
+                        (selectedReportFY === 'FY25' && !isFY25Loaded) || 
+                        (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                      }
                       className="upload-btn" 
                       style={{ 
                         marginTop: '1rem', 
@@ -4486,11 +4595,21 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '0.5rem',
-                        opacity: (isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ? 0.5 : 1,
-                        cursor: (isGeneratingReport || isInventoryLoading || (selectedReportFY === 'FY25' && !isFY25Loaded) || !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ? 'not-allowed' : 'pointer'
+                        opacity: (
+                          isGeneratingReport || 
+                          (reportType === 'inventory' && isInventoryLoading) || 
+                          (selectedReportFY === 'FY25' && !isFY25Loaded) || 
+                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                        ) ? 0.5 : 1,
+                        cursor: (
+                          isGeneratingReport || 
+                          (reportType === 'inventory' && isInventoryLoading) || 
+                          (selectedReportFY === 'FY25' && !isFY25Loaded) || 
+                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                        ) ? 'not-allowed' : 'pointer'
                       }}
                     >
-                      {isGeneratingReport ? 'Generating Report...' : isInventoryLoading ? 'Loading Inventory...' : 'Download Intelligent Report'}
+                      {isGeneratingReport ? 'Generating Report...' : (reportType === 'inventory' && isInventoryLoading) ? 'Loading Inventory...' : 'Download Intelligent Report'}
                     </button>
                   </div>
 
@@ -4498,34 +4617,69 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
                       What's inside the report?
                     </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                      <div style={{ display: 'flex', gap: '0.75rem' }}>
-                        <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
-                        <div>
-                          <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 1: Inventory Levels</strong>
-                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>All active SKUs in stock sorted from highest to lowest stock counts.</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.75rem' }}>
-                        <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
-                        <div>
-                          <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 2: Bestselling Analysis</strong>
-                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>Bestselling items for the selected 2-month span, showing units sold, revenue, and matching inventory levels.</span>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.75rem' }}>
-                        <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Sheet 3: Alarming Stock Replenishment</strong>
-                            <span style={{ background: 'rgba(186, 84, 245, 0.15)', color: 'var(--accent-color)', fontSize: '0.75rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>Python Powered</span>
+                    {reportType === 'inventory' ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 1: Inventory Levels</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>All active SKUs in stock sorted from highest to lowest stock counts.</span>
                           </div>
-                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
-                            Highlights items in high demand (sales velocity) with critically low inventory. Provides Days of Cover (DOC) and recommended replenishment order quantities.
-                          </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 2: Bestselling Analysis</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>Bestselling items for the selected 2-month span, showing units sold, revenue, and matching inventory levels.</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Sheet 3: Alarming Stock Replenishment</strong>
+                              <span style={{ background: 'rgba(186, 84, 245, 0.15)', color: 'var(--accent-color)', fontSize: '0.75rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>Python Powered</span>
+                            </div>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Highlights items in high demand (sales velocity) with critically low inventory. Provides Days of Cover (DOC) and recommended replenishment order quantities.
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Weekly Sales (Qty & Value)</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Tracks sales quantity and revenue (value) channel-by-channel across Weeks 1 to 5.
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Weekly Returns (Qty)</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Tracks customer returns quantity channel-by-channel across Weeks 1 to 5.
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Total Monthly Summary Row</strong>
+                              <span style={{ background: 'rgba(186, 84, 245, 0.15)', color: 'var(--accent-color)', fontSize: '0.75rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>Python Powered</span>
+                            </div>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Compiles aggregate monthly sales quantities, revenues, and returns, with dynamic Excel formulas for cross-channel verification.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
