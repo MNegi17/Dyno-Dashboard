@@ -251,12 +251,63 @@ def generate_weekly_business_report():
         sales_df = pd.DataFrame(sales_list)
         returns_df = pd.DataFrame(returns_list)
 
-        def get_week_num(day):
-            if day <= 7: return 1
-            elif day <= 14: return 2
-            elif day <= 21: return 3
-            elif day <= 28: return 4
-            else: return 5
+        # Dynamic Calendar Week Calculation (Weeks start on Sunday)
+        import calendar
+        import datetime
+
+        month_name_to_num = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4,
+            'May': 5, 'June': 6, 'July': 7, 'August': 8,
+            'September': 9, 'October': 10, 'November': 11, 'December': 12
+        }
+        m_num = month_name_to_num.get(month, 6)
+        y_num = int(year)
+
+        num_days = calendar.monthrange(y_num, m_num)[1]
+
+        weeks = []
+        current_week_days = []
+        week_idx = 1
+
+        for d in range(1, num_days + 1):
+            dt = datetime.date(y_num, m_num, d)
+            # Sunday starts a new week in standard calendar (weekday() == 6)
+            if dt.weekday() == 6 and current_week_days:
+                start_day = current_week_days[0]
+                end_day = current_week_days[-1]
+                start_dt = datetime.date(y_num, m_num, start_day)
+                end_dt = datetime.date(y_num, m_num, end_day)
+                label = f"Week {week_idx} ({start_dt.strftime('%b %d')} - {end_dt.strftime('%b %d')})"
+                weeks.append({
+                    'week_num': week_idx,
+                    'start_day': start_day,
+                    'end_day': end_day,
+                    'label': label,
+                    'days': current_week_days
+                })
+                current_week_days = []
+                week_idx += 1
+            current_week_days.append(d)
+
+        if current_week_days:
+            start_day = current_week_days[0]
+            end_day = current_week_days[-1]
+            start_dt = datetime.date(y_num, m_num, start_day)
+            end_dt = datetime.date(y_num, m_num, end_day)
+            label = f"Week {week_idx} ({start_dt.strftime('%b %d')} - {end_dt.strftime('%b %d')})"
+            weeks.append({
+                'week_num': week_idx,
+                'start_day': start_day,
+                'end_day': end_day,
+                'label': label,
+                'days': current_week_days
+            })
+
+        def find_week_index(day, weeks_list):
+            for idx, w in enumerate(weeks_list):
+                if day in w['days']:
+                    return idx
+            return 0
 
         channel_stats = {}
 
@@ -269,28 +320,28 @@ def generate_weekly_business_report():
         for channel in unique_channels:
             channel_stats[channel] = {
                 'Channel': channel,
-                'W1 Sales Qty': 0, 'W1 Sales Value': 0.0, 'W1 Returns Qty': 0,
-                'W2 Sales Qty': 0, 'W2 Sales Value': 0.0, 'W2 Returns Qty': 0,
-                'W3 Sales Qty': 0, 'W3 Sales Value': 0.0, 'W3 Returns Qty': 0,
-                'W4 Sales Qty': 0, 'W4 Sales Value': 0.0, 'W4 Returns Qty': 0,
-                'W5 Sales Qty': 0, 'W5 Sales Value': 0.0, 'W5 Returns Qty': 0,
                 'Monthly Sales Qty': 0, 'Monthly Sales Value': 0.0, 'Monthly Returns Qty': 0
             }
+            for w_idx in range(len(weeks)):
+                channel_stats[channel][f'W{w_idx+1} Sales Qty'] = 0
+                channel_stats[channel][f'W{w_idx+1} Sales Value'] = 0.0
+                channel_stats[channel][f'W{w_idx+1} Returns Qty'] = 0
 
         # Process sales
         if not sales_df.empty:
             sales_df['date_dt'] = pd.to_datetime(sales_df['parsedDate'], errors='coerce')
             sales_df['day'] = sales_df['date_dt'].dt.day
             sales_df = sales_df.dropna(subset=['day'])
-            sales_df['week'] = sales_df['day'].apply(get_week_num)
+            sales_df['day'] = sales_df['day'].astype(int)
 
             for _, row in sales_df.iterrows():
                 ch = row['channel_name']
-                w = int(row['week'])
+                day = row['day']
+                w_idx = find_week_index(day, weeks)
                 val = float(row.get('priceVal', 0) or 0)
                 if ch in channel_stats:
-                    channel_stats[ch][f'W{w} Sales Qty'] += 1
-                    channel_stats[ch][f'W{w} Sales Value'] += val
+                    channel_stats[ch][f'W{w_idx+1} Sales Qty'] += 1
+                    channel_stats[ch][f'W{w_idx+1} Sales Value'] += val
                     channel_stats[ch]['Monthly Sales Qty'] += 1
                     channel_stats[ch]['Monthly Sales Value'] += val
 
@@ -299,27 +350,32 @@ def generate_weekly_business_report():
             returns_df['date_dt'] = pd.to_datetime(returns_df['parsedDate'], errors='coerce')
             returns_df['day'] = returns_df['date_dt'].dt.day
             returns_df = returns_df.dropna(subset=['day'])
-            returns_df['week'] = returns_df['day'].apply(get_week_num)
+            returns_df['day'] = returns_df['day'].astype(int)
 
             for _, row in returns_df.iterrows():
                 ch = row['channel_name']
-                w = int(row['week'])
+                day = row['day']
+                w_idx = find_week_index(day, weeks)
                 qty = float(row.get('return_qty', 0) or 0)
                 if ch in channel_stats:
-                    channel_stats[ch][f'W{w} Returns Qty'] += qty
+                    channel_stats[ch][f'W{w_idx+1} Returns Qty'] += qty
                     channel_stats[ch]['Monthly Returns Qty'] += qty
 
         records = list(channel_stats.values())
         if not records:
-            df = pd.DataFrame(columns=[
-                'Channel',
-                'W1 Sales Qty', 'W1 Sales Value', 'W1 Returns Qty',
-                'W2 Sales Qty', 'W2 Sales Value', 'W2 Returns Qty',
-                'W3 Sales Qty', 'W3 Sales Value', 'W3 Returns Qty',
-                'W4 Sales Qty', 'W4 Sales Value', 'W4 Returns Qty',
-                'W5 Sales Qty', 'W5 Sales Value', 'W5 Returns Qty',
-                'Monthly Sales Qty', 'Monthly Sales Value', 'Monthly Returns Qty'
+            cols = ['Channel']
+            for w_idx in range(len(weeks)):
+                cols.extend([
+                    f'W{w_idx+1} Sales Qty',
+                    f'W{w_idx+1} Sales Value',
+                    f'W{w_idx+1} Returns Qty'
+                ])
+            cols.extend([
+                'Monthly Sales Qty',
+                'Monthly Sales Value',
+                'Monthly Returns Qty'
             ])
+            df = pd.DataFrame(columns=cols)
         else:
             df = pd.DataFrame(records)
             df = df.sort_values(by='Monthly Sales Value', ascending=False)
@@ -343,44 +399,41 @@ def generate_weekly_business_report():
         ws.merge_cells('A1:A2')
         ws.cell(row=1, column=1, value="Channel")
 
-        ws.merge_cells('B1:D1')
-        ws.cell(row=1, column=2, value="Week 1 (Days 1-7)")
+        # Dynamically build double-headers
+        for idx, w in enumerate(weeks):
+            start_col = 2 + idx * 3
+            end_col = 4 + idx * 3
+            start_letter = get_column_letter(start_col)
+            end_letter = get_column_letter(end_col)
+            ws.merge_cells(f"{start_letter}1:{end_letter}1")
+            ws.cell(row=1, column=start_col, value=w['label'])
 
-        ws.merge_cells('E1:G1')
-        ws.cell(row=1, column=5, value="Week 2 (Days 8-14)")
+        m_start_col = 2 + len(weeks) * 3
+        m_end_col = 4 + len(weeks) * 3
+        m_start_letter = get_column_letter(m_start_col)
+        m_end_letter = get_column_letter(m_end_col)
+        ws.merge_cells(f"{m_start_letter}1:{m_end_letter}1")
+        ws.cell(row=1, column=m_start_col, value="Total Monthly Performance")
 
-        ws.merge_cells('H1:J1')
-        ws.cell(row=1, column=8, value="Week 3 (Days 15-21)")
-
-        ws.merge_cells('K1:M1')
-        ws.cell(row=1, column=11, value="Week 4 (Days 22-28)")
-
-        ws.merge_cells('N1:P1')
-        ws.cell(row=1, column=14, value="Week 5 (Days 29+)")
-
-        ws.merge_cells('Q1:S1')
-        ws.cell(row=1, column=17, value="Total Monthly Performance")
-
-        for col in range(1, 20):
+        total_cols = 4 + len(weeks) * 3
+        for col in range(1, total_cols + 1):
             cell = ws.cell(row=1, column=col)
             cell.fill = purple_header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-        sub_headers = [
-            ("Channel", 1),
-            ("Sales (Qty)", 2), ("Sales (Value)", 3), ("Returns (Qty)", 4),
-            ("Sales (Qty)", 5), ("Sales (Value)", 6), ("Returns (Qty)", 7),
-            ("Sales (Qty)", 8), ("Sales (Value)", 9), ("Returns (Qty)", 10),
-            ("Sales (Qty)", 11), ("Sales (Value)", 12), ("Returns (Qty)", 13),
-            ("Sales (Qty)", 14), ("Sales (Value)", 15), ("Returns (Qty)", 16),
-            ("Sales (Qty)", 17), ("Sales (Value)", 18), ("Returns (Qty)", 19),
-        ]
+        # Row 2 Subheaders
+        ws.cell(row=2, column=1).fill = purple_header_fill
+        ws.cell(row=2, column=1).font = header_font
 
-        for label, col_idx in sub_headers:
-            cell = ws.cell(row=2, column=col_idx)
-            if col_idx > 1:
-                cell.value = label
+        for idx in range(len(weeks) + 1):
+            base_col = 2 + idx * 3
+            ws.cell(row=2, column=base_col, value="Sales (Qty)")
+            ws.cell(row=2, column=base_col+1, value="Sales (Value)")
+            ws.cell(row=2, column=base_col+2, value="Returns (Qty)")
+
+        for col in range(1, total_cols + 1):
+            cell = ws.cell(row=2, column=col)
             cell.fill = purple_header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -393,14 +446,19 @@ def generate_weekly_business_report():
             cell_ch.alignment = Alignment(horizontal="left", vertical="center")
             cell_ch.border = thin_border
 
-            cols = [
-                'W1 Sales Qty', 'W1 Sales Value', 'W1 Returns Qty',
-                'W2 Sales Qty', 'W2 Sales Value', 'W2 Returns Qty',
-                'W3 Sales Qty', 'W3 Sales Value', 'W3 Returns Qty',
-                'W4 Sales Qty', 'W4 Sales Value', 'W4 Returns Qty',
-                'W5 Sales Qty', 'W5 Sales Value', 'W5 Returns Qty',
-                'Monthly Sales Qty', 'Monthly Sales Value', 'Monthly Returns Qty'
-            ]
+            cols = []
+            for w_idx in range(len(weeks)):
+                cols.extend([
+                    f'W{w_idx+1} Sales Qty',
+                    f'W{w_idx+1} Sales Value',
+                    f'W{w_idx+1} Returns Qty'
+                ])
+            cols.extend([
+                'Monthly Sales Qty',
+                'Monthly Sales Value',
+                'Monthly Returns Qty'
+            ])
+
             for idx, col_name in enumerate(cols):
                 col_idx = idx + 2
                 val = r_data[col_name]
@@ -427,7 +485,7 @@ def generate_weekly_business_report():
         )
         cell_total_label.border = double_bottom_border
 
-        for col_idx in range(2, 20):
+        for col_idx in range(2, total_cols + 1):
             col_letter = get_column_letter(col_idx)
             formula = f"=SUM({col_letter}3:{col_letter}{current_row-1})"
             cell = ws.cell(row=current_row, column=col_idx, value=formula)
@@ -435,12 +493,12 @@ def generate_weekly_business_report():
             cell.border = double_bottom_border
             cell.alignment = Alignment(horizontal="right", vertical="center")
             
-            if col_idx in [3, 6, 9, 12, 15, 18]:
+            if (col_idx - 3) % 3 == 0:
                 cell.number_format = '₹#,##0.00'
             else:
                 cell.number_format = '#,##0'
 
-        for col_idx in range(1, 20):
+        for col_idx in range(1, total_cols + 1):
             col_letter = get_column_letter(col_idx)
             max_len = 0
             for r in range(2, current_row + 1):
@@ -449,7 +507,7 @@ def generate_weekly_business_report():
                     val_str = str(val)
                     if val_str.startswith('='):
                         val_str = "12,345.00"
-                    elif col_idx in [3, 6, 9, 12, 15, 18] and r >= 3:
+                    elif (col_idx - 3) % 3 == 0 and r >= 3:
                         val_str = f"₹{val_str}"
                     if len(val_str) > max_len:
                         max_len = len(val_str)
