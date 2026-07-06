@@ -898,35 +898,44 @@ function App() {
       setIsGeneratingReport(true);
       setReportError('');
 
-      // Filter sales data in the date range
-      const filtered = data.filter(row => {
-        if (!row.parsedDate) return false;
+      // Filter and map sales data in the date range
+      const excelRows = [];
+      data.forEach(row => {
+        if (!row.parsedDate) return;
         const rowDate = new Date(row.parsedDate);
-        const checkDate = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate());
-        const compareStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        const compareEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        return checkDate >= compareStart && checkDate <= compareEnd;
+        const m = rowDate.getMonth();
+        const d = rowDate.getDate();
+
+        const startYear = start.getFullYear();
+        const endYear = end.getFullYear();
+
+        for (let y = startYear; y <= endYear; y++) {
+          const testDate = new Date(y, m, d);
+          const compareStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+          const compareEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+          if (testDate >= compareStart && testDate <= compareEnd) {
+            excelRows.push({
+              'Date': testDate.toLocaleDateString('en-IN'),
+              'Month': row.monthName || '',
+              'Formatted Date': row.formattedDate || '',
+              'FY': row.fy || '',
+              'Selling Price': row.priceVal || 0,
+              'Division': row.division || '',
+              'Channel': row.channel_name || '',
+              'Category': row.categories || '',
+              'Item Color': row.item_color || '',
+              'Size': row.item_type_size || ''
+            });
+            break; // Stop once we find a matching calendar year
+          }
+        }
       });
 
-      if (filtered.length === 0) {
+      if (excelRows.length === 0) {
         setReportError('No sales data found in the selected date range.');
         setIsGeneratingReport(false);
         return;
       }
-
-      // Prepare rows for Excel
-      const excelRows = filtered.map(row => ({
-        'Date': row.parsedDate ? new Date(row.parsedDate).toLocaleDateString('en-IN') : '',
-        'Month': row.monthName || '',
-        'Formatted Date': row.formattedDate || '',
-        'FY': row.fy || '',
-        'Selling Price': row.priceVal || 0,
-        'Division': row.division || '',
-        'Channel': row.channel_name || '',
-        'Category': row.categories || '',
-        'Item Color': row.item_color || '',
-        'Size': row.item_type_size || ''
-      }));
 
       // Create Worksheet using SheetJS
       const worksheet = XLSX.utils.json_to_sheet(excelRows);
