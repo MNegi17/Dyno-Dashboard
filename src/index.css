@@ -1568,5 +1568,33 @@ tr:hover td {
   }
 }
 
+.custom-date-picker {
+  background: #27293d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 600;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.custom-date-picker:hover,
+.custom-date-picker:focus {
+  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 0 15px rgba(186, 84, 245, 0.15);
+}
+
+.custom-date-picker::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+
 
 

@@ -319,6 +319,8 @@ function App() {
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [reportType, setReportType] = useState('inventory'); // 'inventory' or 'business'
   const [selectedReportMonth, setSelectedReportMonth] = useState('June');
+  const [saleReportStartDate, setSaleReportStartDate] = useState('');
+  const [saleReportEndDate, setSaleReportEndDate] = useState('');
 
   const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
   const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
@@ -866,6 +868,93 @@ function App() {
       console.error(err);
       setReportError(err.message || "Failed to generate report. Make sure local Python server is running.");
     } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const downloadSaleReport = () => {
+    try {
+      if (!saleReportStartDate || !saleReportEndDate) {
+        setReportError('Please select both Start Date and End Date.');
+        return;
+      }
+
+      const start = new Date(saleReportStartDate);
+      const end = new Date(saleReportEndDate);
+
+      if (start > end) {
+        setReportError('Start Date cannot be after End Date.');
+        return;
+      }
+
+      // Check max range (93 days)
+      const diffTime = Math.abs(end - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      if (diffDays > 93) {
+        setReportError('Date range cannot exceed 3 months.');
+        return;
+      }
+
+      setIsGeneratingReport(true);
+      setReportError('');
+
+      // Filter sales data in the date range
+      const filtered = data.filter(row => {
+        if (!row.parsedDate) return false;
+        const rowDate = new Date(row.parsedDate);
+        const checkDate = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate());
+        const compareStart = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        const compareEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        return checkDate >= compareStart && checkDate <= compareEnd;
+      });
+
+      if (filtered.length === 0) {
+        setReportError('No sales data found in the selected date range.');
+        setIsGeneratingReport(false);
+        return;
+      }
+
+      // Prepare rows for Excel
+      const excelRows = filtered.map(row => ({
+        'Date': row.parsedDate ? new Date(row.parsedDate).toLocaleDateString('en-IN') : '',
+        'Month': row.monthName || '',
+        'Formatted Date': row.formattedDate || '',
+        'FY': row.fy || '',
+        'Selling Price': row.priceVal || 0,
+        'Division': row.division || '',
+        'Channel': row.channel_name || '',
+        'Category': row.categories || '',
+        'Item Color': row.item_color || '',
+        'Size': row.item_type_size || ''
+      }));
+
+      // Create Worksheet using SheetJS
+      const worksheet = XLSX.utils.json_to_sheet(excelRows);
+      
+      // Auto-fit column widths
+      const colWidths = Object.keys(excelRows[0]).map(key => {
+        let maxLen = key.length;
+        excelRows.forEach(row => {
+          const val = String(row[key] || '');
+          if (val.length > maxLen) {
+            maxLen = val.length;
+          }
+        });
+        return { wch: maxLen + 3 };
+      });
+      worksheet['!cols'] = colWidths;
+
+      // Create Workbook and append sheet
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Sales Report');
+
+      // Write and trigger download
+      XLSX.writeFile(workbook, `Sales_Report_${saleReportStartDate}_to_${saleReportEndDate}.xlsx`);
+      
+      setIsGeneratingReport(false);
+    } catch (e) {
+      console.error(e);
+      setReportError('Failed to generate sales report. Please try again.');
       setIsGeneratingReport(false);
     }
   };
@@ -4448,12 +4537,18 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </div>
                     <div>
                       <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>
-                        {reportType === 'inventory' ? 'Intelli Inventory Report' : 'Weekly Business Intelli Report'}
+                        {reportType === 'inventory' 
+                          ? 'Intelli Inventory Report' 
+                          : reportType === 'business' 
+                            ? 'Weekly Business Intelli Report' 
+                            : 'Sale Report'}
                       </h2>
                       <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
                         {reportType === 'inventory' 
                           ? 'Generate intelligent inventory replenishment data, bestselling analysis, and full stock listings.'
-                          : 'Generate channel-wise weekly sales and return statistics for a single month performance review.'}
+                          : reportType === 'business'
+                            ? 'Generate channel-wise weekly sales and return statistics for a single month performance review.'
+                            : 'Download sales report with all standard sales columns for any custom date range (up to 3 months).'}
                       </p>
                     </div>
                   </div>
@@ -4470,10 +4565,20 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Report Type</label>
                         <CustomSelect 
-                          value={reportType === 'inventory' ? 'Intelli Inventory Report' : 'Weekly Business Intelli Report'} 
-                          options={['Intelli Inventory Report', 'Weekly Business Intelli Report']} 
+                          value={reportType === 'inventory' 
+                            ? 'Intelli Inventory Report' 
+                            : reportType === 'business' 
+                              ? 'Weekly Business Intelli Report' 
+                              : 'Sale Report'} 
+                          options={['Intelli Inventory Report', 'Weekly Business Intelli Report', 'Sale Report']} 
                           onChange={(val) => {
-                            setReportType(val === 'Intelli Inventory Report' ? 'inventory' : 'business');
+                            if (val === 'Intelli Inventory Report') {
+                              setReportType('inventory');
+                            } else if (val === 'Weekly Business Intelli Report') {
+                              setReportType('business');
+                            } else {
+                              setReportType('sale_report');
+                            }
                             setReportError('');
                           }} 
                           placeholder="Select Report Type" 
@@ -4481,20 +4586,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </div>
 
                       {/* Financial Year Selector */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Financial Year</label>
-                        <CustomSelect 
-                          value={selectedReportFY === 'FY25' ? 'FY25 (2024-25)' : 'FY26 (2025-26)'} 
-                          options={['FY25 (2024-25)', 'FY26 (2025-26)']} 
-                          onChange={(val) => {
-                            setSelectedReportFY(val.startsWith('FY25') ? 'FY25' : 'FY26');
-                          }} 
-                          placeholder="Select Year" 
-                        />
-                      </div>
+                      {reportType !== 'sale_report' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Financial Year</label>
+                          <CustomSelect 
+                            value={selectedReportFY === 'FY25' ? 'FY25 (2024-25)' : 'FY26 (2025-26)'} 
+                            options={['FY25 (2024-25)', 'FY26 (2025-26)']} 
+                            onChange={(val) => {
+                              setSelectedReportFY(val.startsWith('FY25') ? 'FY25' : 'FY26');
+                            }} 
+                            placeholder="Select Year" 
+                          />
+                        </div>
+                      )}
 
                       {/* Month Selectors based on Report Type */}
-                      {reportType === 'inventory' ? (
+                      {reportType === 'inventory' && (
                         <div className="grid-split-2" style={{ display: 'grid', gap: '1rem' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>From Month</label>
@@ -4525,7 +4632,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                             />
                           </div>
                         </div>
-                      ) : (
+                      )}
+
+                      {reportType === 'business' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Month</label>
                           <CustomSelect 
@@ -4536,6 +4645,35 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                             }} 
                             placeholder="Select Month" 
                           />
+                        </div>
+                      )}
+
+                      {reportType === 'sale_report' && (
+                        <div className="grid-split-2" style={{ display: 'grid', gap: '1rem' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Start Date</label>
+                            <input 
+                              type="date" 
+                              value={saleReportStartDate} 
+                              onChange={(e) => {
+                                setSaleReportStartDate(e.target.value);
+                                setReportError('');
+                              }}
+                              className="custom-date-picker"
+                            />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>End Date</label>
+                            <input 
+                              type="date" 
+                              value={saleReportEndDate} 
+                              onChange={(e) => {
+                                setSaleReportEndDate(e.target.value);
+                                setReportError('');
+                              }}
+                              className="custom-date-picker"
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -4588,12 +4726,13 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                     {/* Download Button */}
                     <button 
-                      onClick={reportType === 'inventory' ? downloadIntelliReport : downloadWeeklyBusinessReport}
+                      onClick={reportType === 'inventory' ? downloadIntelliReport : reportType === 'business' ? downloadWeeklyBusinessReport : downloadSaleReport}
                       disabled={
                         isGeneratingReport || 
                         (reportType === 'inventory' && isInventoryLoading) || 
                         (selectedReportFY === 'FY25' && !isFY25Loaded) || 
-                        (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                        (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ||
+                        (reportType === 'sale_report' && (!saleReportStartDate || !saleReportEndDate))
                       }
                       className="upload-btn" 
                       style={{ 
@@ -4608,17 +4747,25 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           isGeneratingReport || 
                           (reportType === 'inventory' && isInventoryLoading) || 
                           (selectedReportFY === 'FY25' && !isFY25Loaded) || 
-                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ||
+                          (reportType === 'sale_report' && (!saleReportStartDate || !saleReportEndDate))
                         ) ? 0.5 : 1,
                         cursor: (
                           isGeneratingReport || 
                           (reportType === 'inventory' && isInventoryLoading) || 
                           (selectedReportFY === 'FY25' && !isFY25Loaded) || 
-                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth))
+                          (reportType === 'inventory' && !validateConsecutiveMonths(reportStartMonth, reportEndMonth)) ||
+                          (reportType === 'sale_report' && (!saleReportStartDate || !saleReportEndDate))
                         ) ? 'not-allowed' : 'pointer'
                       }}
                     >
-                      {isGeneratingReport ? 'Generating Report...' : (reportType === 'inventory' && isInventoryLoading) ? 'Loading Inventory...' : 'Download Intelligent Report'}
+                      {isGeneratingReport 
+                        ? 'Generating Report...' 
+                        : (reportType === 'inventory' && isInventoryLoading) 
+                          ? 'Loading Inventory...' 
+                          : reportType === 'sale_report'
+                            ? 'Download Sales Report'
+                            : 'Download Intelligent Report'}
                     </button>
                   </div>
 
@@ -4655,7 +4802,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </div>
                         </div>
                       </div>
-                    ) : (
+                    ) : reportType === 'business' ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
                           <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
@@ -4684,6 +4831,39 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                             </div>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
                               Compiles aggregate monthly sales quantities, revenues, and returns, with dynamic Excel formulas for cross-channel verification.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Transaction Level Sales Rows</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Downloads all standard transaction columns: Date, Month, FY, Price, Division, Channel, Category, Color, and Size.
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div>
+                            <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Custom Date Range (Max 3 Months)</strong>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Extracts sales logs matching your selected start and end dates with simple input validation.
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Instant Browser Download</strong>
+                              <span style={{ background: 'rgba(186, 84, 245, 0.15)', color: 'var(--accent-color)', fontSize: '0.75rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>SheetJS Powered</span>
+                            </div>
+                            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                              Processes, auto-fits columns, and writes the spreadsheet file directly in the client browser for speed and efficiency.
                             </span>
                           </div>
                         </div>
