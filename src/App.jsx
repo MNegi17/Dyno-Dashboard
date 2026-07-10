@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Sector
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const GlowingLogoIcon = ({ size = 36, white = false }) => {
@@ -322,6 +322,22 @@ function App() {
   const [saleReportStartDate, setSaleReportStartDate] = useState('');
   const [saleReportEndDate, setSaleReportEndDate] = useState('');
 
+  // Reconciliation State
+  const [recoMonth, setRecoMonth] = useState('April');
+  const [recoYear, setRecoYear] = useState('2026');
+  const [recoFile, setRecoFile] = useState(null);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [recoError, setRecoError] = useState('');
+  const [recoSuccess, setRecoSuccess] = useState('');
+
+  // Validation Dialog Modal State
+  const [validationModal, setValidationModal] = useState({
+    isOpen: false,
+    missingColumns: [],
+    onConfirm: null,
+    onCancel: null
+  });
+
   const [skuSortField, setSkuSortField] = useState('units'); // 'units' or 'returns'
   const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
   const [activeTableFilterDropdown, setActiveTableFilterDropdown] = useState(null); // 'units' or 'returns' or null
@@ -369,7 +385,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (userRole !== 'admin' && activePage === 'raw_files') {
+    if (userRole !== 'admin' && (activePage === 'raw_files' || activePage === 'reco')) {
       setActivePage('dashboard');
     }
   }, [userRole, activePage]);
@@ -731,6 +747,8 @@ function App() {
     "January", "February", "March"
   ];
 
+  const yearsList = ["2024", "2025", "2026", "2027", "2028", "2029", "2030"];
+
   const downloadIntelliReport = async () => {
     setReportError('');
     setIsGeneratingReport(true);
@@ -1068,9 +1086,127 @@ function App() {
     };
   }, [uploadedFiles]);
 
+  const validateSalesData = (parsedData) => {
+    if (!parsedData || parsedData.length === 0) return [];
+    
+    const missingColumns = new Set();
+    
+    parsedData.forEach(row => {
+      // Skip empty rows
+      const isEmptyRow = Object.values(row).every(v => v === undefined || v === null || String(v).trim() === '');
+      if (isEmptyRow) return;
+
+      // Create a normalized key version of the raw row for this scan
+      const normRow = {};
+      for (const k in row) {
+        const normKey = k.trim().toLowerCase().replace(/\s+/g, '_');
+        normRow[normKey] = row[k];
+      }
+
+      // 1. Date check
+      const dayKey = Object.keys(normRow).find(k => k === 'day');
+      const dateKey = Object.keys(normRow).find(k => k === 'date');
+      const dynamicDateKey = Object.keys(normRow).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+      const matchedDateKey = dayKey || dateKey || dynamicDateKey;
+      
+      const dateVal = matchedDateKey !== undefined ? normRow[matchedDateKey] : undefined;
+      if (dateVal === undefined || dateVal === null || String(dateVal).trim() === '') {
+        missingColumns.add('Date');
+      }
+
+      // 2. Size check
+      const matchedSizeKey = Object.keys(normRow).find(k => k === 'size' || k === 'item_type_size' || k === 'itemtypesize');
+      const sizeVal = matchedSizeKey !== undefined ? normRow[matchedSizeKey] : undefined;
+      if (sizeVal === undefined || sizeVal === null || String(sizeVal).trim() === '') {
+        missingColumns.add('Size');
+      }
+
+      // 3. Item Color check
+      const matchedColorKey = Object.keys(normRow).find(k => k === 'item_color' || k === 'itemcolor' || k === 'barcode');
+      const colorVal = matchedColorKey !== undefined ? normRow[matchedColorKey] : undefined;
+      if (colorVal === undefined || colorVal === null || String(colorVal).trim() === '') {
+        missingColumns.add('Item Color');
+      }
+
+      // 4. Category check
+      const matchedCatKey = Object.keys(normRow).find(k => k === 'categories' || k === 'category');
+      const catVal = matchedCatKey !== undefined ? normRow[matchedCatKey] : undefined;
+      if (catVal === undefined || catVal === null || String(catVal).trim() === '') {
+        missingColumns.add('Category');
+      }
+
+      // 5. Division check
+      const divVal = normRow.division;
+      if (divVal === undefined || divVal === null || String(divVal).trim() === '') {
+        missingColumns.add('Division');
+      }
+
+      // 6. Price check (New SP only - blank only, 0 is allowed!)
+      const matchedPriceKey = Object.keys(normRow).find(k => k === 'new_sp' || k === 'newsp');
+      const priceVal = matchedPriceKey !== undefined ? normRow[matchedPriceKey] : undefined;
+      if (priceVal === undefined || priceVal === null || String(priceVal).trim() === '') {
+        missingColumns.add('New SP');
+      }
+
+      // 7. Channel check
+      const matchedChannelKey = Object.keys(normRow).find(k => k === 'channel_name' || k === 'channelname' || k === 'channel');
+      const channelVal = matchedChannelKey !== undefined ? normRow[matchedChannelKey] : undefined;
+      if (channelVal === undefined || channelVal === null || String(channelVal).trim() === '') {
+        missingColumns.add('Channel');
+      }
+    });
+
+    return Array.from(missingColumns);
+  };
+
+  const saveSalesDataToDb = async (normalizedData, file, targetElement) => {
+    const chunkSize = 1000;
+    const chunks = [];
+    for (let i = 0; i < normalizedData.length; i += chunkSize) {
+      chunks.push(normalizedData.slice(i, i + chunkSize));
+    }
+
+    setIsLoading(true);
+    let success = true;
+    let errorMessage = "";
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const newFileEntry = {
+        name: chunks.length > 1 ? `${file.name} (Part ${i + 1}/${chunks.length})` : file.name,
+        record_count: chunk.length,
+        data: chunk
+      };
+
+      const { error } = await supabase.from('uploaded_files').insert([newFileEntry]);
+      if (error) {
+        console.error("Upload chunk error:", error);
+        success = false;
+        errorMessage = error.message;
+        break;
+      }
+      
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
+
+    setIsLoading(false);
+    if (targetElement) {
+      targetElement.value = null;
+    }
+
+    if (success) {
+      fetchData();
+    } else {
+      alert(`Error saving file to database: ${errorMessage}. If the file is too large, it partially uploaded.`);
+    }
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const targetElement = e.target;
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -1116,7 +1252,6 @@ function App() {
               let dateStr = rawDate.toString().trim();
               if (rawYear && !isNaN(rawYear)) {
                 const yearStr = rawYear.toString().trim();
-                // If the year isn't already in the date string, append it
                 if (!dateStr.includes(yearStr)) {
                   dateStr = `${dateStr} ${yearStr}`;
                 }
@@ -1139,32 +1274,26 @@ function App() {
           const day = dateObj.getDate().toString().padStart(2, '0');
           formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
           
-          // Classify calendar Year dynamically
           const year = dateObj.getFullYear();
-          const month = dateObj.getMonth(); // 0 = Jan, 11 = Dec
+          const month = dateObj.getMonth();
           if (year < 2024) {
-            fyVal = '2026'; // Treat years before 2024 (e.g. 2001) as default 2026
+            fyVal = '2026';
           } else {
-            // April (3) or later starts the financial year in the current year. Jan-Mar starts in previous year.
             const fyStartYear = month >= 3 ? year : year - 1;
-            if (fyStartYear === 2025) {
-              fyVal = '2025';
-            } else {
-              fyVal = '2026';
-            }
+            fyVal = fyStartYear.toString();
           }
         }
 
         const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
         const parsedPriceVal = parseFloat(priceVal) || 0;
 
-        // Keep only minimal columns required by the dashboard
         return {
           parsedDate: dateObj ? dateObj.toISOString() : null,
           monthName,
           formattedDate,
           fy: fyVal,
           priceVal: parsedPriceVal,
+          new_sp: normalizedRow.new_sp ?? normalizedRow.newsp ?? null,
           division: normalizedRow.division || 'Unknown',
           channel_name: normalizeChannelName(normalizedRow.channel_name || normalizedRow.channelname || normalizedRow.channel),
           categories: normalizedRow.categories || normalizedRow.category || 'Unknown',
@@ -1173,48 +1302,289 @@ function App() {
         };
       });
 
+      const missingColumns = validateSalesData(parsedData);
+
+      if (missingColumns.length > 0) {
+        setValidationModal({
+          isOpen: true,
+          missingColumns,
+          onConfirm: () => {
+            saveSalesDataToDb(normalizedData, file, targetElement);
+            setValidationModal(prev => ({ ...prev, isOpen: false }));
+          },
+          onCancel: () => {
+            targetElement.value = null;
+            setValidationModal(prev => ({ ...prev, isOpen: false }));
+          }
+        });
+        return;
+      }
+
+      saveSalesDataToDb(normalizedData, file, targetElement);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const saveReconciliationDataToDb = async (normalizedData, targetMonth, targetYear) => {
+    try {
+      setIsReconciling(true);
+      setRecoError('');
+      setRecoSuccess('');
+
+      // 1. Fetch metadata of all files from Supabase to filter matches
+      const { data: dbFiles, error: fetchError } = await supabase
+        .from('uploaded_files')
+        .select('id, name, data');
+
+      if (fetchError) throw fetchError;
+
+      // Map months to their common abbreviation
+      const monthAbbrs = {
+        'January': 'jan',
+        'February': 'feb',
+        'March': 'mar',
+        'April': 'apr',
+        'May': 'may',
+        'June': 'jun',
+        'July': 'jul',
+        'August': 'aug',
+        'September': 'sep',
+        'October': 'oct',
+        'November': 'nov',
+        'December': 'dec'
+      };
+
+      const targetMonthLower = targetMonth.toLowerCase();
+      const targetAbbr = monthAbbrs[targetMonth];
+
+      // Filter file records to delete
+      const filesToDelete = dbFiles.filter(f => {
+        const name = f.name || '';
+        // Skip return and inventory files
+        if (name.startsWith('[RETURN]') || name.startsWith('[INVENTORY]')) return false;
+
+        const lowerName = name.toLowerCase();
+        const matchesMonth = lowerName.includes(targetMonthLower) || (targetAbbr && lowerName.includes(targetAbbr));
+        if (!matchesMonth) return false;
+
+        // Verify that at least one row in the file belongs to the target year
+        if (f.data && Array.isArray(f.data) && f.data.length > 0) {
+          const firstRow = f.data[0];
+          const dateStr = firstRow.parsedDate || firstRow.parseddate || firstRow.date || firstRow.day;
+          if (dateStr) {
+            const dateObj = new Date(dateStr);
+            if (!isNaN(dateObj.getTime())) {
+              return dateObj.getFullYear().toString() === targetYear;
+            }
+          }
+        }
+        return false;
+      });
+
+      const fileIdsToDelete = filesToDelete.map(f => f.id);
+      const deletedFileNames = filesToDelete.map(f => f.name);
+
+      console.log(`Reconciliation: deleting files for ${targetMonth} ${targetYear}:`, deletedFileNames);
+
+      // 2. Delete matched files from Supabase
+      if (fileIdsToDelete.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('uploaded_files')
+          .delete()
+          .in('id', fileIdsToDelete);
+
+        if (deleteError) throw deleteError;
+      }
+
+      // 3. Upload new reconciled file in chunks
       const chunkSize = 1000;
       const chunks = [];
       for (let i = 0; i < normalizedData.length; i += chunkSize) {
         chunks.push(normalizedData.slice(i, i + chunkSize));
       }
 
-      setIsLoading(true);
-      let success = true;
-      let errorMessage = "";
-
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const newFileEntry = {
-          name: chunks.length > 1 ? `${file.name} (Part ${i + 1}/${chunks.length})` : file.name,
+          name: chunks.length > 1 
+            ? `[RECO] ${targetMonth} ${targetYear} Reconciled Sales (Part ${i + 1}/${chunks.length})`
+            : `[RECO] ${targetMonth} ${targetYear} Reconciled Sales`,
           record_count: chunk.length,
           data: chunk
         };
 
-        const { error } = await supabase.from('uploaded_files').insert([newFileEntry]);
-        if (error) {
-          console.error("Upload chunk error:", error);
-          success = false;
-          errorMessage = error.message;
-          break;
-        }
-        
-        // Brief pause to allow the database to breathe between heavy inserts
+        const { error: insertError } = await supabase
+          .from('uploaded_files')
+          .insert([newFileEntry]);
+
+        if (insertError) throw insertError;
+
         if (i < chunks.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
 
-      setIsLoading(false);
-      e.target.value = null;
+      // Success!
+      setRecoSuccess(`Successfully reconciled ${targetMonth} ${targetYear}. Deleted ${fileIdsToDelete.length} old sales file(s) and uploaded new reconciled sales records.`);
+      setRecoFile(null);
+      
+      // Reset file input element if found
+      const fileInput = document.getElementById('reco-file-input');
+      if (fileInput) fileInput.value = '';
 
-      if (success) {
-        fetchData();
-      } else {
-        alert(`Error saving file to database: ${errorMessage}. If the file is too large, it partially uploaded.`);
+      // Refresh dashboard data
+      fetchData();
+
+    } catch (err) {
+      console.error(err);
+      setRecoError(err.message || 'An error occurred during reconciliation.');
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
+  const handleReconciliationUpload = () => {
+    if (!recoFile) {
+      setRecoError('Please choose a file to upload.');
+      return;
+    }
+    if (!recoMonth) {
+      setRecoError('Please select a month.');
+      return;
+    }
+
+    setRecoError('');
+    setRecoSuccess('');
+    setIsReconciling(true);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const bstr = event.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const parsedData = XLSX.utils.sheet_to_json(ws);
+
+        if (parsedData.length === 0) {
+          throw new Error("The selected file is empty.");
+        }
+
+        const normalizedData = parsedData.map(row => {
+          const normalizedRow = {};
+          for (const key in row) {
+            const newKey = key.trim().toLowerCase().replace(/\s+/g, '_');
+            normalizedRow[newKey] = row[key];
+          }
+
+          let rawDate = undefined;
+          const dayKey = Object.keys(normalizedRow).find(k => k === 'day');
+          if (dayKey) {
+            rawDate = normalizedRow[dayKey];
+          }
+          if (rawDate === undefined) {
+            rawDate = normalizedRow.date;
+          }
+          if (rawDate === undefined) {
+            const dateKey = Object.keys(normalizedRow).find(k => k.includes('date') && k !== 'parseddate' && k !== 'formatteddate' && k !== 'dispatch_date');
+            if (dateKey) {
+              rawDate = normalizedRow[dateKey];
+            }
+          }
+          const rawYear = normalizedRow.year;
+
+          let dateObj = null;
+          if (rawDate) {
+            if (rawDate instanceof Date) {
+              dateObj = new Date(rawDate);
+              if (rawYear && !isNaN(rawYear)) {
+                dateObj.setFullYear(parseInt(rawYear));
+              }
+            } else {
+              try {
+                let dateStr = rawDate.toString().trim();
+                if (rawYear && !isNaN(rawYear)) {
+                  const yearStr = rawYear.toString().trim();
+                  if (!dateStr.includes(yearStr)) {
+                    dateStr = `${dateStr} ${yearStr}`;
+                  }
+                }
+                dateObj = new Date(dateStr);
+                if (isNaN(dateObj.getTime())) dateObj = null;
+              } catch {
+                dateObj = null;
+              }
+            }
+          }
+
+          let monthName = 'Unknown';
+          let formattedDate = 'Unknown';
+          let fyVal = '2026';
+
+          if (dateObj) {
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            monthName = monthNames[dateObj.getMonth()];
+            const day = dateObj.getDate().toString().padStart(2, '0');
+            formattedDate = `${day} ${monthNames[dateObj.getMonth()]}`;
+
+            const year = dateObj.getFullYear();
+            const month = dateObj.getMonth();
+            if (year < 2024) {
+              fyVal = '2026';
+            } else {
+              const fyStartYear = month >= 3 ? year : year - 1;
+              fyVal = fyStartYear.toString();
+            }
+          }
+
+          const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
+          const parsedPriceVal = parseFloat(priceVal) || 0;
+
+          return {
+            parsedDate: dateObj ? dateObj.toISOString() : null,
+            monthName,
+            formattedDate,
+            fy: fyVal,
+            priceVal: parsedPriceVal,
+            new_sp: normalizedRow.new_sp ?? normalizedRow.newsp ?? null,
+            division: normalizedRow.division || 'Unknown',
+            channel_name: normalizeChannelName(normalizedRow.channel_name || normalizedRow.channelname || normalizedRow.channel),
+            categories: normalizedRow.categories || normalizedRow.category || 'Unknown',
+            item_color: normalizedRow.item_color || normalizedRow.itemcolor || normalizedRow.barcode || 'Unknown',
+            item_type_size: normalizedRow.item_type_size || normalizedRow.itemtypesize || normalizedRow.size || 'Unknown'
+          };
+        });
+
+        const missingColumns = validateSalesData(parsedData);
+
+        if (missingColumns.length > 0) {
+          setValidationModal({
+            isOpen: true,
+            missingColumns,
+            onConfirm: () => {
+              saveReconciliationDataToDb(normalizedData, recoMonth, recoYear);
+              setValidationModal(prev => ({ ...prev, isOpen: false }));
+            },
+            onCancel: () => {
+              setIsReconciling(false);
+              const fileInput = document.getElementById('reco-file-input');
+              if (fileInput) fileInput.value = '';
+              setRecoFile(null);
+              setValidationModal(prev => ({ ...prev, isOpen: false }));
+            }
+          });
+          return;
+        }
+
+        saveReconciliationDataToDb(normalizedData, recoMonth, recoYear);
+
+      } catch (err) {
+        console.error(err);
+        setRecoError(err.message || 'An error occurred during reconciliation.');
+        setIsReconciling(false);
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsBinaryString(recoFile);
   };
 
   const handleReturnUpload = (e) => {
@@ -2835,10 +3205,16 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <span>Previous Years</span>
             </div>
             {userRole === 'admin' && (
-              <div className={`nav-item ${activePage === 'raw_files' ? 'active' : ''}`} onClick={() => { setActivePage('raw_files'); setIsMobileMenuOpen(false); }}>
-                <FileText size={20} />
-                <span>Raw Files</span>
-              </div>
+              <>
+                <div className={`nav-item ${activePage === 'raw_files' ? 'active' : ''}`} onClick={() => { setActivePage('raw_files'); setIsMobileMenuOpen(false); }}>
+                  <FileText size={20} />
+                  <span>Raw Files</span>
+                </div>
+                <div className={`nav-item ${activePage === 'reco' ? 'active' : ''}`} onClick={() => { setActivePage('reco'); setIsMobileMenuOpen(false); }}>
+                  <RefreshCw size={20} />
+                  <span>Reco Section</span>
+                </div>
+              </>
             )}
             
             <div className="mobile-only-logout">
@@ -2863,6 +3239,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           <div className="title-group">
             <h1>
               {activePage === 'raw_files' && 'Raw Files Management'}
+              {activePage === 'reco' && 'Sales Reconciliation'}
               {activePage === 'dashboard' && 'Sales Overview'}
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
@@ -3562,6 +3939,181 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </div>
               </>
             )}
+          </div>
+        ) : activePage === 'reco' && userRole === 'admin' ? (
+          <div className="dashboard-content">
+            <div className="card" style={{ marginBottom: '2rem', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ padding: '0.75rem', background: 'rgba(186, 84, 245, 0.15)', borderRadius: '12px', color: 'var(--accent-color)' }}>
+                  <RefreshCw size={32} />
+                </div>
+                <div>
+                  <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>
+                    Sales Reconciliation (Reco Section)
+                  </h2>
+                  <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.95rem' }}>
+                    Upload corrected sales data for a specific month. Deletes all old sales files for that month automatically.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="dashboard-grid grid-split-12-08" style={{ gap: '2rem' }}>
+              <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+                  <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>
+                    Reconciliation Configuration
+                  </h3>
+                  <button 
+                    onClick={() => setValidationModal({
+                      isOpen: true,
+                      missingColumns: ['Size', 'Item Color', 'Selling Price', 'Channel'],
+                      onConfirm: () => setValidationModal(prev => ({ ...prev, isOpen: false })),
+                      onCancel: () => setValidationModal(prev => ({ ...prev, isOpen: false }))
+                    })}
+                    style={{
+                      background: 'rgba(186, 84, 245, 0.1)',
+                      border: '1px solid rgba(186, 84, 245, 0.2)',
+                      borderRadius: '8px',
+                      color: 'var(--accent-color)',
+                      padding: '0.4rem 0.8rem',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Preview Modal Design
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    {/* Select Month */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Month to Reconcile</label>
+                      <CustomSelect 
+                        value={recoMonth} 
+                        options={monthsList} 
+                        onChange={(val) => {
+                          setRecoMonth(val);
+                          setRecoError('');
+                          setRecoSuccess('');
+                        }} 
+                        placeholder="Select Month" 
+                      />
+                    </div>
+
+                    {/* Select Year */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Year to Reconcile</label>
+                      <CustomSelect 
+                        value={recoYear} 
+                        options={yearsList} 
+                        onChange={(val) => {
+                          setRecoYear(val);
+                          setRecoError('');
+                          setRecoSuccess('');
+                        }} 
+                        placeholder="Select Year" 
+                      />
+                    </div>
+                  </div>
+
+                  {/* Choose Excel File */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Upload Reconciled Excel File</label>
+                    <div className="upload-btn-wrapper" style={{ width: '100%' }}>
+                      <button className="upload-btn" style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}>
+                        <UploadCloud size={20} />
+                        {recoFile ? recoFile.name : 'Choose Excel/CSV File'}
+                      </button>
+                      <input 
+                        id="reco-file-input" 
+                        type="file" 
+                        accept=".xlsx, .xls, .csv" 
+                        onChange={(e) => {
+                          setRecoFile(e.target.files[0]);
+                          setRecoError('');
+                          setRecoSuccess('');
+                        }}
+                        disabled={isReconciling}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Validation Warnings / Error Messages */}
+                {recoError && (
+                  <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '8px', color: '#ef4444', fontSize: '0.9rem' }}>
+                    {recoError}
+                  </div>
+                )}
+
+                {/* Success Message */}
+                {recoSuccess && (
+                  <div style={{ padding: '0.75rem 1rem', background: 'rgba(0, 242, 196, 0.1)', border: '1px solid rgba(0, 242, 196, 0.2)', borderRadius: '8px', color: '#00f2c4', fontSize: '0.9rem' }}>
+                    {recoSuccess}
+                  </div>
+                )}
+
+                {/* Reconcile Button */}
+                <button 
+                  onClick={handleReconciliationUpload}
+                  disabled={isReconciling || !recoFile || !recoMonth}
+                  className="upload-btn" 
+                  style={{ 
+                    marginTop: '1rem', 
+                    fontSize: '1.05rem', 
+                    padding: '0.85rem 2rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    opacity: (isReconciling || !recoFile || !recoMonth) ? 0.5 : 1,
+                    cursor: (isReconciling || !recoFile || !recoMonth) ? 'not-allowed' : 'pointer',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #ff8d72 100%)'
+                  }}
+                >
+                  {isReconciling ? 'Performing Reconciliation...' : 'Upload & Reconcile'}
+                </button>
+              </div>
+
+              <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.2rem', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.75rem' }}>
+                  How Reconciliation Works
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '1.1rem' }}>⚠</div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Automated Old Data Deletion</strong>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                        The moment you click reconcile, the database locates all existing sales files for the selected month (e.g. 6-May, 12-14 May) and deletes them.
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Returns & Inventory Unaffected</strong>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                        Inventory files (`[INVENTORY]`) and Returns files (`[RETURN]`) are excluded from deletion and remain fully intact.
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                    <div>
+                      <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Split Chunk Upload</strong>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                        The new corrected sales spreadsheet is split into 1000-row chunks and uploaded to Supabase, marked as `[RECO] Reconciled Sales`.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         ) : !data.length ? (
           <div className="empty-state">
@@ -5180,6 +5732,155 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </footer>
       </main>
+
+      {/* Custom Premium Validation Modal */}
+      {validationModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          animation: 'fadeIn 0.25s ease-out'
+        }}>
+          <div className="card" style={{
+            width: '100%',
+            maxWidth: '520px',
+            margin: '1.5rem',
+            padding: '2.5rem',
+            background: 'rgba(30, 30, 40, 0.85)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.4), 0 0 100px rgba(186, 84, 245, 0.1)',
+            borderRadius: '20px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.5rem',
+            animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+          }}>
+            {/* Header Icon */}
+            <div style={{
+              margin: '0 auto',
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              background: 'rgba(239, 68, 68, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ef4444',
+              boxShadow: '0 0 20px rgba(239, 68, 68, 0.15)'
+            }}>
+              <RefreshCw size={32} style={{ animation: 'spin-slow 6s linear infinite' }} />
+            </div>
+
+            {/* Title & Desc */}
+            <div>
+              <h3 style={{
+                color: '#ffffff',
+                fontSize: '1.35rem',
+                fontWeight: 700,
+                margin: '0 0 0.5rem 0'
+              }}>
+                Warning: Missing Column Data
+              </h3>
+              <p style={{
+                color: 'var(--text-secondary)',
+                fontSize: '0.95rem',
+                lineHeight: '1.5',
+                margin: 0
+              }}>
+                The uploaded file has missing or empty values for:
+              </p>
+            </div>
+
+            {/* Badges List */}
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              padding: '1rem',
+              background: 'rgba(255, 255, 255, 0.03)',
+              borderRadius: '12px',
+              border: '1px solid rgba(255, 255, 255, 0.05)'
+            }}>
+              {validationModal.missingColumns.map((col, idx) => (
+                <span key={idx} style={{
+                  padding: '0.4rem 0.8rem',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  borderRadius: '8px',
+                  color: '#ff8d72',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  letterSpacing: '0.02em'
+                }}>
+                  {col}
+                </span>
+              ))}
+            </div>
+
+            {/* Prompt Text */}
+            <p style={{
+              color: '#ffffff',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              margin: 0
+            }}>
+              Are you sure you want to go ahead without these columns?
+            </p>
+
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              marginTop: '0.5rem'
+            }}>
+              <button
+                onClick={validationModal.onCancel}
+                className="upload-btn"
+                style={{
+                  flex: 1,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: 'var(--text-primary)',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Cancel Upload
+              </button>
+              <button
+                onClick={validationModal.onConfirm}
+                className="upload-btn"
+                style={{
+                  flex: 1,
+                  background: 'linear-gradient(135deg, #ef4444 0%, #ff8d72 100%)',
+                  boxShadow: '0 4px 15px rgba(239, 68, 68, 0.3)',
+                  color: '#ffffff',
+                  padding: '0.75rem 1.5rem',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Yes, Go Ahead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
