@@ -4772,7 +4772,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </div>
                     {isRangeDropdownOpen && (
                       <div className="custom-select-options" style={{ zIndex: 100 }}>
-                        {[5, 15, 30, 45, 60].map(val => (
+                        {[5, 15, 30, 45, 60, 90].map(val => (
                           <div 
                             key={val}
                             className={`custom-select-option ${selectedDrrRange === val ? 'selected' : ''}`}
