@@ -471,6 +471,66 @@ def generate_weekly_business_report():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/send_po_email', methods=['POST'])
+def send_po_email():
+    try:
+        import os
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+
+        # Load .env variables manually if .env exists
+        if os.path.exists('.env'):
+            with open('.env', 'r') as f:
+                for line in f:
+                    if '=' in line and not line.startswith('#'):
+                        parts = line.strip().split('=', 1)
+                        if len(parts) == 2:
+                            os.environ[parts[0].strip()] = parts[1].strip()
+
+        payload = request.json
+        if not payload:
+            return jsonify({"error": "No payload provided"}), 400
+
+        recipient = payload.get('recipient')
+        subject = payload.get('subject')
+        body = payload.get('body')
+
+        if not recipient or not subject or not body:
+            return jsonify({"error": "Missing recipient, subject, or body in request payload"}), 400
+
+        sender_email = os.environ.get('SENDER_EMAIL')
+        app_password = os.environ.get('GMAIL_APP_PASSWORD')
+
+        if not sender_email or not app_password:
+            return jsonify({
+                "error": "Gmail sender credentials not found in backend environment.\n\n"
+                         "Please create a '.env' file in your project folder with these variables:\n"
+                         "SENDER_EMAIL=your_email@gmail.com\n"
+                         "GMAIL_APP_PASSWORD=your_16_digit_app_password"
+            }), 400
+
+        # Construct MIME Message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Connect to Gmail SMTP server
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, app_password)
+        server.sendmail(sender_email, recipient, msg.as_string())
+        server.quit()
+
+        return jsonify({"success": True, "message": "Email sent successfully!"})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5001))

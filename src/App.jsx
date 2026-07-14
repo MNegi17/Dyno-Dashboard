@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Sector
 } from 'recharts';
-import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw } from 'lucide-react';
+import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 const GlowingLogoIcon = ({ size = 36, white = false }) => {
@@ -342,6 +342,97 @@ function App() {
   const [skuSortDirection, setSkuSortDirection] = useState('desc'); // 'asc' or 'desc'
   const [activeTableFilterDropdown, setActiveTableFilterDropdown] = useState(null); // 'units' or 'returns' or null
 
+  // Inventory DRR and Live Dates States
+  const [selectedDrrRange, setSelectedDrrRange] = useState(30);
+  const [isRangeDropdownOpen, setIsRangeDropdownOpen] = useState(false);
+  const drrDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (drrDropdownRef.current && !drrDropdownRef.current.contains(event.target)) {
+        setIsRangeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const [activePoItem, setActivePoItem] = useState(null);
+  const [poMailRecipient, setPoMailRecipient] = useState('purchasing@dyno.com');
+  const [poMailSubject, setPoMailSubject] = useState('');
+  const [poMailBody, setPoMailBody] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [emailSuccess, setEmailSuccess] = useState('');
+
+  useEffect(() => {
+    if (activePoItem) {
+      setEmailError('');
+      setEmailSuccess('');
+      setPoMailSubject(`[PO ORDER] Purchase Order Recommendation for SKU: ${activePoItem.sku}`);
+      setPoMailBody(
+`Hello,
+
+Please initiate a Purchase Order for the following SKU:
+
+Product SKU: ${activePoItem.sku}
+Recommended PO Quantity: ${activePoItem.poRecommendation} units
+Units Sold (Past ${selectedDrrRange} Days): ${activePoItem.unitsSold} units
+Daily Run Rate (DRR): ${activePoItem.drr.toFixed(2)}
+Current Inventory: ${activePoItem.inventoryQty} units
+
+Please confirm once the PO has been raised.
+
+Best regards,
+Dyno Dashboard Auto-Mail`
+      );
+    }
+  }, [activePoItem, selectedDrrRange]);
+
+  const handleSendPoEmail = async () => {
+    setIsSendingEmail(true);
+    setEmailError('');
+    setEmailSuccess('');
+    try {
+      const endpoint = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001/api/send_po_email'
+        : 'https://backend-production-bbaa.up.railway.app/api/send_po_email';
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          recipient: poMailRecipient,
+          subject: poMailSubject,
+          body: poMailBody
+        })
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Failed to send email.');
+      }
+
+      setEmailSuccess('Email sent successfully!');
+      setTimeout(() => {
+        setActivePoItem(null);
+      }, 1500);
+    } catch (err) {
+      setEmailError(err.message || 'An error occurred.');
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  const [isUploadingLiveDates, setIsUploadingLiveDates] = useState(false);
+  const [liveDatesError, setLiveDatesError] = useState('');
+  const [liveDatesSuccess, setLiveDatesSuccess] = useState('');
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventoryTab, setInventoryTab] = useState('all'); // 'all', 'alerts', 'new_launches'
+  const [inventoryPage, setInventoryPage] = useState(1);
+
   // Second Product Returns Search States
   const [productSearchReturn, setProductSearchReturn] = useState('');
   const [selectedProductReturn, setSelectedProductReturn] = useState(null);
@@ -527,6 +618,33 @@ function App() {
     }
   };
 
+  const downloadLaunchDatesSilently = async (launchDateFiles) => {
+    if (launchDateFiles.length === 0) return;
+    try {
+      const ids = launchDateFiles.map(f => f.id);
+      const { data, error } = await supabase
+        .from('uploaded_files')
+        .select('id, data')
+        .in('id', ids);
+
+      if (!error && data) {
+        const updates = {};
+        data.forEach(item => {
+          if (!item.data) return;
+          updates[item.id] = item.data.map(row => ({
+            sku: row.sku || row.item_color || row.barcode || row.itemcolor || 'Unknown',
+            live_date: row.live_date || row.launch_date || row.date || row.livedate || row.launchdate || null
+          }));
+        });
+        setUploadedFiles(prev => prev.map(f => updates[f.id] ? { ...f, data: updates[f.id] } : f));
+      } else if (error) {
+        console.error("Error fetching launch dates silently:", error);
+      }
+    } catch (err) {
+      console.error("Silent launch dates download caught error:", err);
+    }
+  };
+
   const fetchData = async () => {
     // 1. Fetch only metadata first (Lightning fast)
     const { data, error } = await supabase.from('uploaded_files').select('id, name, upload_date, record_count').order('upload_date', { ascending: false });
@@ -545,12 +663,16 @@ function App() {
       if (formatted.length > 0) {
         const mainFiles = formatted.filter(f => 
           !isFY25File(f.name) && 
-          !(f.name || '').startsWith('[INVENTORY]')
+          !(f.name || '').startsWith('[INVENTORY]') &&
+          !(f.name || '').startsWith('[LAUNCH_DATES]')
         );
         startBackgroundDownload(mainFiles);
         
         const inventoryFiles = formatted.filter(f => (f.name || '').startsWith('[INVENTORY]'));
         downloadInventorySilently(inventoryFiles);
+
+        const launchDateFiles = formatted.filter(f => (f.name || '').startsWith('[LAUNCH_DATES]'));
+        downloadLaunchDatesSilently(launchDateFiles);
       }
     } else if (error) {
       console.error("Error fetching metadata.", error);
@@ -1039,7 +1161,11 @@ function App() {
 
   const data = useMemo(() => {
     return uploadedFiles
-      .filter(file => !(file.name || '').startsWith('[RETURN]') && !(file.name || '').startsWith('[INVENTORY]'))
+      .filter(file => 
+        !(file.name || '').startsWith('[RETURN]') && 
+        !(file.name || '').startsWith('[INVENTORY]') &&
+        !(file.name || '').startsWith('[LAUNCH_DATES]')
+      )
       .flatMap(file => file.data);
   }, [uploadedFiles]);
 
@@ -1085,6 +1211,175 @@ function App() {
       map
     };
   }, [uploadedFiles]);
+
+  const skuLiveDatesMap = useMemo(() => {
+    const launchDateFile = uploadedFiles.find(f => (f.name || '').startsWith('[LAUNCH_DATES]'));
+    const map = {};
+    if (launchDateFile && launchDateFile.data) {
+      launchDateFile.data.forEach(row => {
+        const rawSku = row.sku || row.item_color || row.barcode || row.itemcolor;
+        const rawDate = row.live_date || row.launch_date || row.date || row.livedate || row.launchdate;
+        if (rawSku && rawDate) {
+          const skuStr = String(rawSku).trim().toUpperCase();
+          let dateObj = null;
+          if (rawDate instanceof Date) {
+            dateObj = rawDate;
+          } else {
+            const parsed = new Date(rawDate);
+            if (!isNaN(parsed.getTime())) {
+              dateObj = parsed;
+            }
+          }
+          if (dateObj) {
+            map[skuStr] = dateObj;
+          }
+        }
+      });
+    }
+    return map;
+  }, [uploadedFiles]);
+
+  const inventoryDrrData = useMemo(() => {
+    const today = new Date();
+    const rangeStart = new Date(today);
+    rangeStart.setDate(today.getDate() - selectedDrrRange);
+
+    // Filter sales to range
+    const rangeSales = data.filter(item => {
+      if (!item.parsedDate) return false;
+      const d = new Date(item.parsedDate);
+      return d >= rangeStart && d <= today;
+    });
+
+    // Count sales per SKU
+    const salesCountMap = {};
+    rangeSales.forEach(item => {
+      const sku = String(item.item_color || '').trim().toUpperCase();
+      if (sku && sku !== 'UNKNOWN') {
+        salesCountMap[sku] = (salesCountMap[sku] || 0) + 1;
+      }
+    });
+
+    // Get list of unique SKUs that have ever been sold or have a launch date
+    const uniqueSkus = new Set([
+      ...Object.keys(salesCountMap),
+      ...Object.keys(skuLiveDatesMap)
+    ]);
+
+    // Calculate DRR and PO recommendations
+    const list = Array.from(uniqueSkus).map(sku => {
+      const launchDate = skuLiveDatesMap[sku] || null;
+      let activeDays = selectedDrrRange;
+      let ageDays = null;
+
+      if (launchDate) {
+        const diffTime = today - launchDate;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        ageDays = diffDays >= 0 ? diffDays : 0;
+        
+        if (diffDays < 0) {
+          activeDays = 0;
+        } else {
+          activeDays = Math.max(1, Math.min(selectedDrrRange, diffDays));
+        }
+      }
+
+      const unitsSold = salesCountMap[sku] || 0;
+      const drr = activeDays > 0 ? unitsSold / activeDays : 0;
+
+      // Identify if it's a "New Launch" (launched in the last 90 days)
+      const isNewLaunch = ageDays !== null && ageDays <= 90;
+
+      // PO Qty Recommendation based on DRR thresholds for New Launches
+      let poRecommendation = 0;
+      let alertLevel = 'normal'; // 'normal', 'yellow', 'orange', 'red', 'danger'
+      let alarmMessage = 'Normal / No Action';
+
+      if (isNewLaunch) {
+        if (drr >= 2.0) {
+          poRecommendation = 1000;
+          alertLevel = 'danger';
+          alarmMessage = 'Raise 1000 Qty PO';
+        } else if (drr >= 1.5) {
+          poRecommendation = 800;
+          alertLevel = 'red';
+          alarmMessage = 'Raise 800 Qty PO';
+        } else if (drr >= 1.0) {
+          poRecommendation = 600;
+          alertLevel = 'orange';
+          alarmMessage = 'Raise 600 Qty PO';
+        } else if (drr >= 0.8) {
+          poRecommendation = 400;
+          alertLevel = 'yellow';
+          alarmMessage = 'Raise 400 Qty PO';
+        }
+      }
+
+      const inventoryQty = latestInventoryData && latestInventoryData.map ? (latestInventoryData.map[sku] || 0) : 0;
+
+      return {
+        sku,
+        launchDate,
+        ageDays,
+        unitsSold,
+        activeDays,
+        drr,
+        isNewLaunch,
+        poRecommendation,
+        alertLevel,
+        alarmMessage,
+        inventoryQty
+      };
+    });
+
+    return list;
+  }, [data, skuLiveDatesMap, selectedDrrRange, latestInventoryData]);
+
+  const [inventorySortField, setInventorySortField] = useState('drr');
+  const [inventorySortOrder, setInventorySortOrder] = useState('desc');
+
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [inventorySearch, inventoryTab, selectedDrrRange]);
+
+  const filteredInventory = useMemo(() => {
+    return inventoryDrrData.filter(item => {
+      // Search filter
+      const matchesSearch = item.sku.toLowerCase().includes(inventorySearch.toLowerCase());
+      if (!matchesSearch) return false;
+
+      // Tab filter
+      if (inventoryTab === 'alerts') {
+        return item.poRecommendation > 0;
+      }
+      if (inventoryTab === 'new_launches') {
+        return item.isNewLaunch;
+      }
+      return true;
+    });
+  }, [inventoryDrrData, inventorySearch, inventoryTab]);
+
+  const sortedInventory = useMemo(() => {
+    return [...filteredInventory].sort((a, b) => {
+      let valA = a[inventorySortField];
+      let valB = b[inventorySortField];
+
+      // Handle nulls
+      if (valA === null || valA === undefined) return 1;
+      if (valB === null || valB === undefined) return -1;
+
+      if (valA < valB) return inventorySortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return inventorySortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredInventory, inventorySortField, inventorySortOrder]);
+
+  const paginatedInventory = useMemo(() => {
+    const startIdx = (inventoryPage - 1) * 50;
+    return sortedInventory.slice(startIdx, startIdx + 50);
+  }, [sortedInventory, inventoryPage]);
+
+  const totalInventoryPages = Math.ceil(sortedInventory.length / 50) || 1;
 
   const validateSalesData = (parsedData) => {
     if (!parsedData || parsedData.length === 0) return [];
@@ -1321,6 +1616,191 @@ function App() {
       }
 
       saveSalesDataToDb(normalizedData, file, targetElement);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleLiveDatesUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const targetElement = e.target;
+
+    setIsUploadingLiveDates(true);
+    setLiveDatesError('');
+    setLiveDatesSuccess('');
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const bstr = event.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const parsedData = XLSX.utils.sheet_to_json(ws);
+
+        if (parsedData.length === 0) {
+          throw new Error("The selected file is empty.");
+        }
+
+        // Verify structure
+        const firstRow = parsedData[0];
+        const normalizedKeys = Object.keys(firstRow).map(k => k.trim().toLowerCase().replace(/\s+/g, '_'));
+        const hasSku = normalizedKeys.some(k => 
+          k.includes('sku') || 
+          k.includes('item_color') || 
+          k.includes('barcode') || 
+          k.includes('itemcolor') ||
+          k.includes('item_name') ||
+          k.includes('style_id')
+        );
+        const hasDate = normalizedKeys.some(k => k.includes('date') || k.includes('live') || k.includes('launch'));
+
+        if (!hasSku || !hasDate) {
+          throw new Error("Invalid file format. The file must contain at least one product column (SKU/Item Color/Barcode) and a launch date column (Live Date/Launch Date).");
+        }
+
+        // Custom date string parser for formats like "dd mmm yyyy"
+        const parseCustomDateString = (str) => {
+          if (!str) return null;
+          const s = String(str).trim();
+          
+          // Try standard Date parsing
+          const parsed = new Date(s);
+          if (!isNaN(parsed.getTime())) {
+            return parsed;
+          }
+          
+          // Match "dd mmm yyyy" (e.g., "14 Jul 2026") or "dd-mmm-yyyy"
+          const match = s.match(/^(\d{1,2})[\s\-]+([a-zA-Z]{3,9})[\s\-]+(\d{4})$/);
+          if (match) {
+            const day = parseInt(match[1], 10);
+            const monthStr = match[2].toLowerCase().substring(0, 3);
+            const year = parseInt(match[3], 10);
+            
+            const months = {
+              jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+              jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+            };
+            
+            if (months[monthStr] !== undefined) {
+              const date = new Date(year, months[monthStr], day);
+              if (!isNaN(date.getTime())) {
+                return date;
+              }
+            }
+          }
+          return null;
+        };
+
+        // Fetch existing launch date files from Supabase to merge
+        const { data: existingFiles, error: fetchError } = await supabase
+          .from('uploaded_files')
+          .select('id, name, data');
+
+        if (fetchError) throw fetchError;
+
+        // Build existing mapping from existing [LAUNCH_DATES] files in database
+        const existingMap = {};
+        const launchDateFiles = existingFiles.filter(f => (f.name || '').startsWith('[LAUNCH_DATES]'));
+        
+        launchDateFiles.forEach(f => {
+          if (f.data && Array.isArray(f.data)) {
+            f.data.forEach(row => {
+              const sku = row.sku || row.item_color || row.barcode || row.itemcolor;
+              const date = row.live_date || row.launch_date || row.date || row.livedate || row.launchdate;
+              if (sku && date) {
+                existingMap[String(sku).trim().toUpperCase()] = date;
+              }
+            });
+          }
+        });
+
+        let newRecordsCount = 0;
+
+        // Process newly uploaded rows
+        const newlyUploadedRows = parsedData.map(row => {
+          const norm = {};
+          for (const key in row) {
+            norm[key.trim().toLowerCase().replace(/\s+/g, '_')] = row[key];
+          }
+          const sku = norm.sku || norm.item_color || norm.barcode || norm.itemcolor || norm['item_name-color'] || norm.item_name_color || norm.style_id || norm.item_name;
+          const liveDateVal = norm.live_date || norm.launch_date || norm.date || norm.livedate || norm.launchdate;
+
+          let formattedDate = null;
+          if (liveDateVal) {
+            const dateObj = parseCustomDateString(liveDateVal);
+            if (dateObj) {
+              formattedDate = dateObj.toISOString();
+            }
+          }
+
+          return {
+            sku: sku ? String(sku).trim().toUpperCase() : 'Unknown',
+            live_date: formattedDate
+          };
+        }).filter(r => r.sku !== 'Unknown' && r.live_date !== null);
+
+        // Merge: keep database's existing date if there is a match, else insert the new one
+        const mergedData = [];
+        const seenSkus = new Set();
+
+        // Add existing ones first to ensure their dates are preserved
+        Object.keys(existingMap).forEach(sku => {
+          mergedData.push({
+            sku,
+            live_date: existingMap[sku]
+          });
+          seenSkus.add(sku);
+        });
+
+        // Add newly uploaded ones only if they don't exist yet
+        newlyUploadedRows.forEach(row => {
+          if (!seenSkus.has(row.sku)) {
+            mergedData.push(row);
+            seenSkus.add(row.sku);
+            newRecordsCount++;
+          }
+        });
+
+        if (mergedData.length === 0) {
+          throw new Error("No launch date records were parsed.");
+        }
+
+        // Delete all old launch date files from database to replace with merged data
+        const fileIdsToDelete = launchDateFiles.map(f => f.id);
+        if (fileIdsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('uploaded_files')
+            .delete()
+            .in('id', fileIdsToDelete);
+
+          if (deleteError) throw deleteError;
+        }
+
+        // Upload merged file
+        const newFileEntry = {
+          name: `[LAUNCH_DATES] SKU Live Dates.xlsx`,
+          record_count: mergedData.length,
+          data: mergedData
+        };
+
+        const { error: insertError } = await supabase
+          .from('uploaded_files')
+          .insert([newFileEntry]);
+
+        if (insertError) throw insertError;
+
+        setLiveDatesSuccess(`Uploaded. Added ${newRecordsCount} new SKUs. Total SKUs: ${mergedData.length}.`);
+        fetchData(); // Reload metadata and data
+      } catch (err) {
+        console.error(err);
+        setLiveDatesError(err.message || "An error occurred while uploading live dates.");
+      } finally {
+        setIsUploadingLiveDates(false);
+        if (targetElement) {
+          targetElement.value = null;
+        }
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -3143,6 +3623,40 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
       );
   }
 
+  const renderSortHeader = (field, label, alignLeft = false) => {
+    const isActive = inventorySortField === field;
+    return (
+      <th 
+        onClick={() => {
+          setInventorySortField(field);
+          setInventorySortOrder(prev => {
+            if (inventorySortField !== field) return 'desc';
+            return prev === 'asc' ? 'desc' : 'asc';
+          });
+        }}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        className="sortable-header"
+      >
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '0.35rem', 
+          justifyContent: alignLeft ? 'flex-start' : 'center',
+          transition: 'color 0.2s'
+        }}>
+          <span>{label}</span>
+          <span style={{ 
+            fontSize: '0.75rem', 
+            opacity: isActive ? 1 : 0.3,
+            color: isActive ? 'var(--accent-color)' : 'inherit'
+          }}>
+            {isActive ? (inventorySortOrder === 'asc' ? '▲' : '▼') : '↕'}
+          </span>
+        </div>
+      </th>
+    );
+  };
+
   return (
     <div className="app-layout">
       {/* Sidebar */}
@@ -3211,6 +3725,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Target size={20} />
               <span>Target & Goals</span>
             </div>
+            <div className={`nav-item ${activePage === 'inventory' ? 'active' : ''}`} onClick={() => { setActivePage('inventory'); setIsMobileMenuOpen(false); }}>
+              <Package size={20} />
+              <span>Inventory</span>
+            </div>
             <div className={`nav-item ${activePage === 'previous_years' ? 'active' : ''}`} onClick={() => { setActivePage('previous_years'); setIsMobileMenuOpen(false); }}>
               <Database size={20} />
               <span>Previous Years</span>
@@ -3257,6 +3775,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               {activePage === 'product_level' && 'Product Level Analysis'}
               {activePage === 'intelli_report' && 'Intelli Report'}
               {activePage === 'goals' && 'Target & Goal Tracking'}
+              {activePage === 'inventory' && 'Inventory & PO Planning'}
               {activePage === 'previous_years' && 'Previous Years Performance'}
             </h1>
             <p>Real-time insights from your daily reports</p>
@@ -3319,6 +3838,32 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
                   Push your current inventory report containing item color codes and total inventory quantities.
                 </p>
+              </div>
+
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-header">
+                  <h3 className="card-title">Upload SKU Live Dates</h3>
+                </div>
+                <div className="upload-btn-wrapper">
+                  <button className="upload-btn" disabled={isUploadingLiveDates} style={{ background: 'linear-gradient(135deg, #ff8d72 0%, #ff6491 100%)' }}>
+                    <UploadCloud size={20} />
+                    {isUploadingLiveDates ? 'Uploading...' : 'Upload Live Dates Excel / CSV'}
+                  </button>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleLiveDatesUpload} disabled={isUploadingLiveDates} />
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                  Append new product launch dates in "dd mmm yyyy" format. Matching SKU launch dates in the database are ignored.
+                </p>
+                {liveDatesError && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(244,67,54,0.1)', borderRadius: '6px', color: '#e57373', fontSize: '0.8rem' }}>
+                    ⚠ {liveDatesError}
+                  </div>
+                )}
+                {liveDatesSuccess && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(76,175,80,0.1)', borderRadius: '6px', color: '#81c784', fontSize: '0.8rem' }}>
+                    ✓ {liveDatesSuccess}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4125,6 +4670,511 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </div>
               </div>
             </div>
+          </div>
+        ) : activePage === 'inventory' ? (
+          <div className="dashboard-content">
+            {/* Top Metrics Row */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '1rem',
+              marginBottom: '2rem'
+            }}>
+              <div className="card metric-card" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: '1.5rem',
+                textAlign: 'center',
+                height: '140px',
+                marginBottom: 0
+              }}>
+                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Total Tracked SKUs</h3>
+                <div className="metric-value" style={{ fontSize: '2rem', fontWeight: 800, color: '#fff' }}>
+                  {inventoryDrrData.length}
+                </div>
+              </div>
+
+              <div className="card metric-card" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: '1.5rem',
+                textAlign: 'center',
+                height: '140px',
+                marginBottom: 0
+              }}>
+                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>New Launches (≤ 90 Days)</h3>
+                <div className="metric-value" style={{ fontSize: '2rem', fontWeight: 800, color: '#fff' }}>
+                  {inventoryDrrData.filter(item => item.isNewLaunch).length}
+                </div>
+              </div>
+
+              <div className="card metric-card" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: '1.5rem',
+                textAlign: 'center',
+                height: '140px',
+                marginBottom: 0
+              }}>
+                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Active PO Alarms</h3>
+                <div className="metric-value" style={{ fontSize: '2rem', fontWeight: 800, color: '#fff' }}>
+                  {inventoryDrrData.filter(item => item.poRecommendation > 0).length}
+                </div>
+              </div>
+
+              <div className="card metric-card" style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: '1.5rem',
+                textAlign: 'center',
+                height: '140px',
+                marginBottom: 0
+              }}>
+                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Avg DRR (New Launches)</h3>
+                <div className="metric-value" style={{ fontSize: '2rem', fontWeight: 800, color: '#fff' }}>
+                  {(() => {
+                    const newLaunches = inventoryDrrData.filter(item => item.isNewLaunch);
+                    if (newLaunches.length === 0) return '0.00';
+                    const sum = newLaunches.reduce((acc, curr) => acc + curr.drr, 0);
+                    return (sum / newLaunches.length).toFixed(2);
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Inventory List Card */}
+            <div className="card" style={{ padding: '2rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem', marginBottom: '2rem' }}>
+                <div>
+                  <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.3rem', fontWeight: 600 }}>
+                    Product Daily Run Rate (DRR) & PO Planning
+                  </h3>
+                  <p style={{ color: 'var(--text-secondary)', margin: '0.25rem 0 0 0', fontSize: '0.85rem' }}>
+                    Calculated from sales records relative to the present date
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Calculate DRR Range:</span>
+                  <div className="custom-select-wrapper" ref={drrDropdownRef} style={{ minWidth: '160px' }}>
+                    <div 
+                      className={`custom-select-trigger ${isRangeDropdownOpen ? 'open' : ''}`}
+                      onClick={() => setIsRangeDropdownOpen(!isRangeDropdownOpen)}
+                    >
+                      <span>Past {selectedDrrRange} Days</span>
+                      <ChevronDown size={16} />
+                    </div>
+                    {isRangeDropdownOpen && (
+                      <div className="custom-select-options" style={{ zIndex: 100 }}>
+                        {[5, 15, 30, 45, 60].map(val => (
+                          <div 
+                            key={val}
+                            className={`custom-select-option ${selectedDrrRange === val ? 'selected' : ''}`}
+                            onClick={() => {
+                              setSelectedDrrRange(val);
+                              setIsRangeDropdownOpen(false);
+                            }}
+                          >
+                            Past {val} Days
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls bar (Tabs & Search) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '0.5rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button 
+                    onClick={() => setInventoryTab('all')}
+                    className={`toggle-btn ${inventoryTab === 'all' ? 'active' : ''}`}
+                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
+                  >
+                    All Tracked SKUs ({inventoryDrrData.length})
+                  </button>
+                  <button 
+                    onClick={() => setInventoryTab('alerts')}
+                    className={`toggle-btn ${inventoryTab === 'alerts' ? 'active' : ''}`}
+                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
+                  >
+                    Active PO Alarms ({inventoryDrrData.filter(i => i.poRecommendation > 0).length})
+                  </button>
+                  <button 
+                    onClick={() => setInventoryTab('new_launches')}
+                    className={`toggle-btn ${inventoryTab === 'new_launches' ? 'active' : ''}`}
+                    style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
+                  >
+                    New Launches (≤ 90d) ({inventoryDrrData.filter(i => i.isNewLaunch).length})
+                  </button>
+                </div>
+
+                <div className="search-bar" style={{ maxWidth: '300px', width: '100%', margin: 0 }}>
+                  <Search size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Search SKU / Item Color..." 
+                    value={inventorySearch}
+                    onChange={(e) => setInventorySearch(e.target.value)}
+                  />
+                  {inventorySearch && <X size={18} style={{ cursor: 'pointer' }} onClick={() => setInventorySearch('')} />}
+                </div>
+              </div>
+
+              {/* Data Table */}
+              <div className="table-responsive">
+                <table className="raw-files-table">
+                  <thead>
+                    <tr>
+                      {renderSortHeader('sku', 'SKU / Item Color', true)}
+                      {renderSortHeader('launchDate', 'Live Date')}
+                      {renderSortHeader('ageDays', 'Age (Days Live)')}
+                      {renderSortHeader('unitsSold', `Units Sold (${selectedDrrRange}D)`)}
+                      {renderSortHeader('inventoryQty', 'Current Inventory')}
+                      {renderSortHeader('drr', 'DRR')}
+                      {renderSortHeader('poRecommendation', 'PO Recommendation')}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedInventory.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                          No products found matching the criteria.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedInventory.map((item) => {
+                        return (
+                          <tr key={item.sku}>
+                            <td style={{ fontWeight: 600, color: '#fff' }}>{item.sku}</td>
+                            <td>
+                              {item.launchDate ? (
+                                new Date(item.launchDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                              ) : (
+                                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>Not Uploaded</span>
+                              )}
+                            </td>
+                            <td>
+                              {item.ageDays !== null ? (
+                                item.isNewLaunch ? (
+                                  <span style={{ 
+                                    background: 'rgba(186, 84, 245, 0.1)', 
+                                    color: '#ba54f5', 
+                                    padding: '0.2rem 0.6rem', 
+                                    borderRadius: '6px', 
+                                    fontSize: '0.8rem', 
+                                    fontWeight: 700,
+                                    border: '1px solid rgba(186, 84, 245, 0.2)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.25rem'
+                                  }}>
+                                    New Launch ({item.ageDays}d)
+                                  </span>
+                                ) : (
+                                  <span>{item.ageDays} days</span>
+                                )
+                              ) : (
+                                <span style={{ color: 'rgba(255,255,255,0.3)' }}>-</span>
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 600 }}>{item.unitsSold}</td>
+                            <td style={{ fontWeight: 600 }}>{item.inventoryQty}</td>
+                            <td style={{ fontWeight: 700, color: 'var(--accent-color)' }}>{item.drr.toFixed(2)}</td>
+                            <td>
+                              {item.poRecommendation > 0 ? (
+                                <button 
+                                  onClick={() => setActivePoItem(item)}
+                                  style={{
+                                    background: item.alertLevel === 'danger' ? 'rgba(186, 84, 245, 0.15)' :
+                                                item.alertLevel === 'red' ? 'rgba(244, 67, 54, 0.15)' :
+                                                item.alertLevel === 'orange' ? 'rgba(255, 152, 0, 0.15)' :
+                                                'rgba(255, 193, 7, 0.15)',
+                                    color: item.alertLevel === 'danger' ? '#ba54f5' :
+                                           item.alertLevel === 'red' ? '#e57373' :
+                                           item.alertLevel === 'orange' ? '#ffb74d' :
+                                           '#ffd54f',
+                                    border: item.alertLevel === 'danger' ? '1px solid rgba(186, 84, 245, 0.3)' :
+                                            item.alertLevel === 'red' ? '1px solid rgba(244, 67, 54, 0.3)' :
+                                            item.alertLevel === 'orange' ? '1px solid rgba(255, 152, 0, 0.3)' :
+                                            '1px solid rgba(255, 193, 7, 0.3)',
+                                    padding: '0.35rem 0.75rem',
+                                    borderRadius: '20px',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    boxShadow: item.alertLevel === 'danger' ? '0 0 10px rgba(186, 84, 245, 0.1)' : 'none',
+                                    transition: 'all 0.2s ease',
+                                    outline: 'none'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1.05)';
+                                    e.currentTarget.style.filter = 'brightness(1.1)';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                    e.currentTarget.style.filter = 'brightness(1)';
+                                  }}
+                                >
+                                  🚨 {item.alarmMessage}
+                                </button>
+                              ) : (
+                                <span style={{
+                                  background: 'rgba(76, 175, 80, 0.1)',
+                                  color: '#81c784',
+                                  border: '1px solid rgba(76, 175, 80, 0.2)',
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '20px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 700,
+                                  display: 'inline-flex',
+                                  alignItems: 'center'
+                                }}>
+                                  ✓ Normal / No PO
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination controls */}
+              {sortedInventory.length > 50 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    Showing {Math.min(sortedInventory.length, (inventoryPage - 1) * 50 + 1)} to {Math.min(sortedInventory.length, inventoryPage * 50)} of {sortedInventory.length} products
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button
+                      disabled={inventoryPage === 1}
+                      onClick={() => setInventoryPage(prev => Math.max(1, prev - 1))}
+                      className="upload-btn"
+                      style={{
+                        padding: '0.4rem 1rem',
+                        fontSize: '0.85rem',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        cursor: inventoryPage === 1 ? 'not-allowed' : 'pointer',
+                        opacity: inventoryPage === 1 ? 0.5 : 1
+                      }}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      disabled={inventoryPage === totalInventoryPages}
+                      onClick={() => setInventoryPage(prev => Math.min(totalInventoryPages, prev + 1))}
+                      className="upload-btn"
+                      style={{
+                        padding: '0.4rem 1rem',
+                        fontSize: '0.85rem',
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        cursor: inventoryPage === totalInventoryPages ? 'not-allowed' : 'pointer',
+                        opacity: inventoryPage === totalInventoryPages ? 0.5 : 1
+                      }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* PO Mail Confirmation Modal */}
+            {activePoItem && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                background: 'rgba(0, 0, 0, 0.7)',
+                backdropFilter: 'blur(8px)',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                zIndex: 9999
+              }}>
+                <div className="card" style={{
+                  width: '90%',
+                  maxWidth: '550px',
+                  padding: '2rem',
+                  background: 'rgba(30, 30, 47, 0.95)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                  boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.4)'
+                }}>
+                  <h3 style={{ color: '#fff', margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: 600 }}>
+                    Confirm PO Mail Details
+                  </h3>
+
+                  {emailSuccess && (
+                    <div style={{
+                      background: 'rgba(76, 175, 80, 0.15)',
+                      border: '1px solid rgba(76, 175, 80, 0.3)',
+                      color: '#81c784',
+                      padding: '0.75rem 1rem',
+                      borderRadius: '8px',
+                      marginBottom: '1rem',
+                      fontSize: '0.9rem',
+                      fontWeight: 600
+                    }}>
+                      ✓ {emailSuccess}
+                    </div>
+                  )}
+
+                  {emailError && (
+                    <div style={{
+                      background: 'rgba(244, 67, 54, 0.15)',
+                      border: '1px solid rgba(244, 67, 54, 0.3)',
+                      color: '#e57373',
+                      padding: '0.75rem 1rem',
+                      borderRadius: '8px',
+                      marginBottom: '1rem',
+                      fontSize: '0.85rem',
+                      whiteSpace: 'pre-wrap'
+                    }}>
+                      ⚠ {emailError}
+                    </div>
+                  )}
+                  
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', fontSize: '0.85rem' }}>
+                      <div>
+                        <span style={{ color: 'var(--text-secondary)' }}>SKU:</span>
+                        <strong style={{ display: 'block', color: '#fff', fontSize: '0.9rem' }}>{activePoItem.sku}</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-secondary)' }}>Recommended PO:</span>
+                        <strong style={{ display: 'block', color: 'var(--accent-color)', fontSize: '0.9rem' }}>{activePoItem.poRecommendation} Qty</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-secondary)' }}>Units Sold ({selectedDrrRange}D):</span>
+                        <strong style={{ display: 'block', color: '#fff' }}>{activePoItem.unitsSold} units</strong>
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--text-secondary)' }}>Current Inventory:</span>
+                        <strong style={{ display: 'block', color: '#fff' }}>{activePoItem.inventoryQty} units</strong>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '0.35rem' }}>Recipient Email:</label>
+                      <input 
+                        type="email" 
+                        disabled={isSendingEmail || !!emailSuccess}
+                        value={poMailRecipient}
+                        onChange={(e) => setPoMailRecipient(e.target.value)}
+                        style={{
+                          width: '100%',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '8px',
+                          padding: '0.6rem 0.85rem',
+                          color: '#fff',
+                          outline: 'none',
+                          fontSize: '0.9rem',
+                          opacity: (isSendingEmail || emailSuccess) ? 0.6 : 1
+                        }}
+                        placeholder="Enter recipient email..."
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '0.35rem' }}>Subject:</label>
+                      <input 
+                        type="text" 
+                        disabled={isSendingEmail || !!emailSuccess}
+                        value={poMailSubject}
+                        onChange={(e) => setPoMailSubject(e.target.value)}
+                        style={{
+                          width: '100%',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '8px',
+                          padding: '0.6rem 0.85rem',
+                          color: '#fff',
+                          outline: 'none',
+                          fontSize: '0.9rem',
+                          opacity: (isSendingEmail || emailSuccess) ? 0.6 : 1
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginBottom: '0.35rem' }}>Email Message Draft:</label>
+                      <textarea 
+                        disabled={isSendingEmail || !!emailSuccess}
+                        value={poMailBody}
+                        onChange={(e) => setPoMailBody(e.target.value)}
+                        rows="8"
+                        style={{
+                          width: '100%',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '8px',
+                          padding: '0.6rem 0.85rem',
+                          color: '#fff',
+                          outline: 'none',
+                          fontSize: '0.85rem',
+                          fontFamily: 'inherit',
+                          resize: 'vertical',
+                          opacity: (isSendingEmail || emailSuccess) ? 0.6 : 1
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <button 
+                      disabled={isSendingEmail}
+                      onClick={() => setActivePoItem(null)}
+                      className="toggle-btn"
+                      style={{
+                        padding: '0.6rem 1.5rem',
+                        background: 'transparent',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'var(--text-secondary)',
+                        cursor: isSendingEmail ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      disabled={isSendingEmail || !!emailSuccess}
+                      onClick={handleSendPoEmail}
+                      className="toggle-btn active"
+                      style={{
+                        padding: '0.6rem 1.5rem',
+                        background: 'linear-gradient(135deg, #ba54f5 0%, #ff8d72 100%)',
+                        border: 'none',
+                        color: '#fff',
+                        fontWeight: 600,
+                        cursor: (isSendingEmail || emailSuccess) ? 'not-allowed' : 'pointer',
+                        opacity: (isSendingEmail || emailSuccess) ? 0.6 : 1
+                      }}
+                    >
+                      {isSendingEmail ? 'Sending Email...' : 'Confirm & Send Email'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : !data.length ? (
           <div className="empty-state">

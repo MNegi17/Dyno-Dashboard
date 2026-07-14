@@ -28,3 +28,8 @@ dist-ssr
 # Excel spreadsheet files and temporary Excel locks
 *.xlsx
 ~$*.xlsx
+
+# Environment variables (credentials — never commit these)
+.env
+.env.local
+.env.*.local
