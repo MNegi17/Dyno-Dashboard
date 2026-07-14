@@ -259,6 +259,18 @@ const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder })
   );
 };
 
+const correctParsedDate = (dateObj, fy) => {
+  if (!dateObj || isNaN(dateObj.getTime())) return dateObj;
+  const year = dateObj.getTime() ? dateObj.getFullYear() : 2026;
+  if (year < 2024) {
+    const month = dateObj.getMonth();
+    const targetFy = parseInt(fy) || 2026;
+    const correctedYear = month >= 3 ? targetFy : targetFy + 1;
+    dateObj.setFullYear(correctedYear);
+  }
+  return dateObj;
+};
+
 // Determine role from email — only the admin email gets admin access
 const getRoleFromEmail = (email) => {
   return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
@@ -716,7 +728,8 @@ Dyno Dashboard Auto-Mail`
               if (isRet || row.is_return) {
                 let dateObj = null;
                 if (row.parsedDate) {
-                  dateObj = new Date(row.parsedDate);
+                  const fyVal = row.fy || '2026';
+                  dateObj = correctParsedDate(new Date(row.parsedDate), fyVal);
                 }
                 return {
                   parsedDate: dateObj,
@@ -798,6 +811,10 @@ Dyno Dashboard Auto-Mail`
                     fyVal = '2026';
                   }
                 }
+              }
+
+              if (dateObj) {
+                dateObj = correctParsedDate(dateObj, fyVal);
               }
 
               const priceVal = row.priceVal ?? row.new_sp ?? row.newsp ?? row.total_selling_price ?? row.totalsellingprice ?? row.price ?? 0;
@@ -1575,6 +1592,7 @@ Dyno Dashboard Auto-Mail`
             const fyStartYear = month >= 3 ? year : year - 1;
             fyVal = fyStartYear.toString();
           }
+          dateObj = correctParsedDate(dateObj, fyVal);
         }
 
         const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
@@ -2024,6 +2042,7 @@ Dyno Dashboard Auto-Mail`
               const fyStartYear = month >= 3 ? year : year - 1;
               fyVal = fyStartYear.toString();
             }
+            dateObj = correctParsedDate(dateObj, fyVal);
           }
 
           const priceVal = normalizedRow.new_sp || normalizedRow.newsp || normalizedRow.total_selling_price || normalizedRow.totalsellingprice || normalizedRow.price || 0;
@@ -2165,6 +2184,7 @@ Dyno Dashboard Auto-Mail`
               fyVal = '2026';
             }
           }
+          dateObj = correctParsedDate(dateObj, fyVal);
         } else if (typeof monthName === 'string') {
           const monthClean = monthName.trim().toLowerCase();
           const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
@@ -4827,6 +4847,27 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   {inventorySearch && <X size={18} style={{ cursor: 'pointer' }} onClick={() => setInventorySearch('')} />}
                 </div>
               </div>
+
+              {/* Sync warning banner */}
+              {downloadProgress.active && (
+                <div style={{
+                  background: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.25)',
+                  borderRadius: '8px',
+                  padding: '0.75rem 1rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  fontSize: '0.85rem',
+                  color: '#ffe082'
+                }}>
+                  <span style={{ fontSize: '1.1rem' }}>⏳</span>
+                  <div>
+                    <strong>Syncing sales history...</strong> Calculations are updating in real-time as background data files download ({downloadProgress.current} of {downloadProgress.total} batches loaded).
+                  </div>
+                </div>
+              )}
 
               {/* Data Table */}
               <div className="table-responsive">
