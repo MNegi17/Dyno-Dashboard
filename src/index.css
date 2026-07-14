@@ -1202,6 +1202,57 @@ tr:hover td {
   border-left: 3px solid var(--accent-color);
 }
 
+/* ── Themed checkboxes inside dropdowns ── */
+.custom-select-option input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  max-width: 14px;
+  min-height: 14px;
+  max-height: 14px;
+  border: 1.5px solid rgba(186, 84, 245, 0.6);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.custom-select-option input[type="checkbox"]:hover {
+  border-color: var(--accent-color);
+  background: rgba(186, 84, 245, 0.1);
+}
+
+.custom-select-option input[type="checkbox"]:focus {
+  border-color: var(--accent-color);
+  background: rgba(186, 84, 245, 0.1);
+  box-shadow: none !important;
+}
+
+.custom-select-option input[type="checkbox"]:checked {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+.custom-select-option input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 7px;
+  border: 1.5px solid #ffffff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
 /* Goal Tracking Styles */
 .goal-card {
   flex-direction: column !important;

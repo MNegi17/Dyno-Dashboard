@@ -232,7 +232,6 @@ const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder })
               type="checkbox" 
               checked={isAllSelected} 
               readOnly 
-              style={{ accentColor: 'var(--accent-color)', cursor: 'pointer' }}
             />
             <span>{placeholder}</span>
           </div>
@@ -249,7 +248,6 @@ const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder })
                   type="checkbox" 
                   checked={isSelected} 
                   readOnly 
-                  style={{ accentColor: 'var(--accent-color)', cursor: 'pointer' }}
                 />
                 <span style={{ fontSize: '0.9rem' }}>{opt}</span>
               </div>
@@ -443,7 +441,7 @@ Dyno Dashboard Auto-Mail`
   const [fy25Progress, setFy25Progress] = useState({ active: false, current: 0, total: 0 });
 
   // Previous Years Filter States
-  const [selectedMonthPrev, setSelectedMonthPrev] = useState('All');
+  const [selectedMonthPrev, setSelectedMonthPrev] = useState([]);
   const [selectedDatePrev, setSelectedDatePrev] = useState('All');
   const [selectedDivisionPrev, setSelectedDivisionPrev] = useState('All');
   const [selectedChannelsPrev, setSelectedChannelsPrev] = useState([]);
@@ -455,7 +453,7 @@ Dyno Dashboard Auto-Mail`
   const [activeTableFilterDropdownPrev, setActiveTableFilterDropdownPrev] = useState(null);
 
   // Filters State
-  const [selectedMonth, setSelectedMonth] = useState('All');
+  const [selectedMonth, setSelectedMonth] = useState([]);
   const [selectedDate, setSelectedDate] = useState('All');
   const [selectedDivision, setSelectedDivision] = useState('All');
   const [selectedChannels, setSelectedChannels] = useState([]);
@@ -2354,8 +2352,8 @@ Dyno Dashboard Auto-Mail`
 
       months.add(row.monthName || 'Unknown');
       
-      // Cascading logic: Only add dates that match the selected month
-      if (selectedMonth === 'All' || row.monthName === selectedMonth) {
+      // Cascading logic: Only add dates that match the selected months
+      if (selectedMonth.length === 0 || selectedMonth.includes(row.monthName)) {
         dates.add(row.formattedDate || 'Unknown');
       }
 
@@ -2403,7 +2401,7 @@ Dyno Dashboard Auto-Mail`
       const fy = row.fy || 'FY26-27';
 
       if (selectedFY !== 'All' && fy !== selectedFY) return false;
-      if (selectedMonth !== 'All' && month !== selectedMonth) return false;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(month)) return false;
       if (selectedDate !== 'All' && date !== selectedDate) return false;
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
       if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
@@ -2423,7 +2421,7 @@ Dyno Dashboard Auto-Mail`
       const fy = row.fy || '2026';
 
       if (selectedFY !== 'All' && fy !== selectedFY) return false;
-      if (selectedMonth !== 'All' && month !== selectedMonth) return false;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(month)) return false;
       if (selectedDate !== 'All' && date !== selectedDate) return false;
       if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
@@ -2445,7 +2443,7 @@ Dyno Dashboard Auto-Mail`
       const channel = row.channel_name || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
 
-      if (selectedMonthPrev !== 'All' && month !== selectedMonthPrev) return false;
+      if (selectedMonthPrev.length > 0 && !selectedMonthPrev.includes(month)) return false;
       if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
       if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
       if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
@@ -2467,7 +2465,7 @@ Dyno Dashboard Auto-Mail`
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
 
-      if (selectedMonthPrev !== 'All' && month !== selectedMonthPrev) return false;
+      if (selectedMonthPrev.length > 0 && !selectedMonthPrev.includes(month)) return false;
       if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
       if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
       if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
@@ -2493,7 +2491,7 @@ Dyno Dashboard Auto-Mail`
     fy25Data.forEach(row => {
       months.add(row.monthName || 'Unknown');
       
-      if (selectedMonthPrev === 'All' || row.monthName === selectedMonthPrev) {
+      if (selectedMonthPrev.length === 0 || selectedMonthPrev.includes(row.monthName)) {
         dates.add(row.formattedDate || 'Unknown');
       }
 
@@ -3994,8 +3992,8 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                 {/* Custom filters for previous years */}
                 <div className="filters-container">
-                  <CustomSelect 
-                    value={selectedMonthPrev} 
+                  <CustomMultiSelect 
+                    values={selectedMonthPrev} 
                     options={prevFilterOptions.months} 
                     onChange={(val) => {
                       setSelectedMonthPrev(val);
@@ -5222,14 +5220,14 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     options={['2026']} 
                     onChange={(val) => {
                       setSelectedFY(val);
-                      setSelectedMonth('All');
+                      setSelectedMonth([]);
                       setSelectedDate('All');
                     }} 
                     placeholder="Select Year" 
                   />
                 )}
-                <CustomSelect 
-                  value={selectedMonth} 
+                <CustomMultiSelect 
+                  values={selectedMonth} 
                   options={activePage === 'goals' ? goalsMonths : filterOptions.months} 
                   onChange={(val) => {
                     setSelectedMonth(val);
