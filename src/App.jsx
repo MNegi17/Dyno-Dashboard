@@ -2907,7 +2907,7 @@ Dyno Dashboard Auto-Mail`
     const availableMonths = Object.keys(monthlyStats).sort((a,b) => monthOrder.indexOf(a) - monthOrder.indexOf(b));
     if (availableMonths.length < 2) return null; 
     
-    let currentMonthStr = selectedMonth !== 'All' && availableMonths.includes(selectedMonth) ? selectedMonth : availableMonths[availableMonths.length - 1];
+    let currentMonthStr = (selectedMonth.length === 1 && availableMonths.includes(selectedMonth[0])) ? selectedMonth[0] : availableMonths[availableMonths.length - 1];
     let currentIdx = monthOrder.indexOf(currentMonthStr);
     
     let prevMonthStr = null;
@@ -2965,7 +2965,7 @@ Dyno Dashboard Auto-Mail`
     
     // Filter data by selected month, date, and channels first if applicable
     const filteredForList = data.filter(row => {
-      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return false;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return false;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return false;
       if (selectedChannels.length > 0) {
         const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
@@ -2990,7 +2990,7 @@ Dyno Dashboard Auto-Mail`
 
     data.forEach(row => {
       // Apply Month, Date, and Channel filters to the specific product data
-      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
       if (selectedChannels.length > 0) {
         const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
@@ -3027,7 +3027,7 @@ Dyno Dashboard Auto-Mail`
     let totalReturns = 0;
 
     data.forEach(row => {
-      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
       if (selectedChannels.length > 0) {
         const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
@@ -3078,7 +3078,30 @@ Dyno Dashboard Auto-Mail`
   const goalMetrics = useMemo(() => {
     if (!data.length) return null;
 
-    let target = GOALS[selectedMonth];
+    let target = null;
+    if (selectedMonth.length === 0) {
+      target = GOALS["All"];
+    } else if (selectedMonth.length === 1) {
+      target = GOALS[selectedMonth[0]];
+    } else {
+      target = {
+        revenue: 0,
+        units: 0,
+        apparel: 0,
+        footwear: 0,
+        asp: 0
+      };
+      selectedMonth.forEach(m => {
+        const g = GOALS[m];
+        if (g) {
+          target.revenue += g.revenue;
+          target.units += g.units;
+          target.apparel += g.apparel;
+          target.footwear += g.footwear;
+        }
+      });
+      target.asp = target.units > 0 ? target.revenue / target.units : 850;
+    }
     if (!target) return null;
 
     let actualRevenue = 0;
@@ -3088,7 +3111,7 @@ Dyno Dashboard Auto-Mail`
     
     const monthData = data.filter(row => {
       if (row.fy !== '2026') return false;
-      if (selectedMonth !== 'All' && row.monthName !== selectedMonth) return false;
+      if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return false;
       return true;
     });
 
@@ -6628,10 +6651,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 <div className="card" style={{ marginBottom: '2rem', textAlign: 'center', padding: '2rem' }}>
                   <h2 style={{ marginBottom: '0.5rem', color: 'var(--text-primary)' }}>Target vs Achievement For FY 2026-2027</h2>
                   <p style={{ color: 'var(--text-secondary)' }}>
-                    Comparing actual performance against goals for <strong>{selectedMonth}</strong> ({
-                      selectedMonth === 'All' 
+                    Comparing actual performance against goals for <strong>{selectedMonth.length === 0 ? 'All Months' : selectedMonth.join(', ')}</strong> ({
+                      selectedMonth.length === 0 
                         ? 'FY 2026-2027' 
-                        : ['January', 'February', 'March'].includes(selectedMonth) ? '2027' : '2026'
+                        : selectedMonth.every(m => ['January', 'February', 'March'].includes(m)) ? '2027' : '2026'
                     })
                   </p>
                 </div>
