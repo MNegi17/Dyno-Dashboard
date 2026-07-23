@@ -271,6 +271,32 @@ const correctParsedDate = (dateObj, fy) => {
   return dateObj;
 };
 
+const getGenderFromItemColor = (itemColor) => {
+  if (!itemColor) return 'Unisex';
+  const clean = String(itemColor).trim().toUpperCase();
+  if (clean.length < 4) return 'Unisex';
+  
+  // 1. Check 2nd letter (index 1)
+  const secondLetter = clean.charAt(1);
+  if (secondLetter === 'B') return 'Boys';
+  if (secondLetter === 'G') return 'Girls';
+  if (secondLetter === 'U') return 'Unisex';
+  
+  // 2. Check 4th letter (index 3)
+  const fourthLetter = clean.charAt(3);
+  if (fourthLetter === 'B') return 'Boys';
+  if (fourthLetter === 'G') return 'Girls';
+  if (fourthLetter === 'U') return 'Unisex';
+  
+  return 'Unisex';
+};
+
+const getGenderColor = (genderName) => {
+  if (genderName === 'Girls') return '#e14eca'; // Bright neon magenta
+  if (genderName === 'Boys') return '#1d8cf8';  // Bright blue
+  return '#ba54f5'; // Vibrant purple for Unisex
+};
+
 // Determine role from email — only the admin email gets admin access
 const getRoleFromEmail = (email) => {
   return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
@@ -458,6 +484,7 @@ Dyno Dashboard Auto-Mail`
   const [selectedDivisionPrev, setSelectedDivisionPrev] = useState('All');
   const [selectedChannelsPrev, setSelectedChannelsPrev] = useState([]);
   const [selectedCategoriesPrev, setSelectedCategoriesPrev] = useState([]);
+  const [selectedGendersPrev, setSelectedGendersPrev] = useState([]);
 
   // Previous Years SKU Sorting States
   const [skuSortFieldPrev, setSkuSortFieldPrev] = useState('units');
@@ -470,6 +497,7 @@ Dyno Dashboard Auto-Mail`
   const [selectedDivision, setSelectedDivision] = useState('All');
   const [selectedChannels, setSelectedChannels] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedGenders, setSelectedGenders] = useState([]);
   const [selectedFY, setSelectedFY] = useState('2026');
 
   // Guard: ensures fetchData is called at most once per session lifecycle
@@ -2418,6 +2446,7 @@ Dyno Dashboard Auto-Mail`
       const division = row.division || 'Unknown';
       const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const sku = row.item_color || row.itemcolor || row.barcode || '';
       const fy = row.fy || 'FY26-27';
 
       if (selectedFY !== 'All' && fy !== selectedFY) return false;
@@ -2426,10 +2455,13 @@ Dyno Dashboard Auto-Mail`
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
       if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
       if (selectedCategories.length > 0 && !selectedCategories.includes(category)) return false;
+      
+      const gender = getGenderFromItemColor(sku);
+      if (selectedGenders.length > 0 && !selectedGenders.includes(gender)) return false;
 
       return true;
     });
-  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedFY]);
+  }, [data, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedGenders, selectedFY]);
 
   const filteredReturnData = useMemo(() => {
     return returnData.filter(row => {
@@ -2438,6 +2470,7 @@ Dyno Dashboard Auto-Mail`
       const channel = row.channel_name || 'Unknown';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const sku = row.item_color || row.itemcolor || row.barcode || '';
       const fy = row.fy || '2026';
 
       if (selectedFY !== 'All' && fy !== selectedFY) return false;
@@ -2446,9 +2479,13 @@ Dyno Dashboard Auto-Mail`
       if (selectedChannels.length > 0 && !selectedChannels.includes(channel)) return false;
       if (selectedDivision !== 'All' && division !== selectedDivision) return false;
       if (selectedCategories.length > 0 && !selectedCategories.includes(category)) return false;
+      
+      const gender = getGenderFromItemColor(sku);
+      if (selectedGenders.length > 0 && !selectedGenders.includes(gender)) return false;
+      
       return true;
     });
-  }, [returnData, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedFY]);
+  }, [returnData, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedGenders, selectedFY]);
 
   const prevFilteredData = useMemo(() => {
     const fy25Data = uploadedFiles
@@ -2462,15 +2499,20 @@ Dyno Dashboard Auto-Mail`
       const division = row.division || 'Unknown';
       const channel = row.channel_name || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const sku = row.item_color || row.itemcolor || row.barcode || '';
 
       if (selectedMonthPrev.length > 0 && !selectedMonthPrev.includes(month)) return false;
       if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
       if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
       if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
       if (selectedCategoriesPrev.length > 0 && !selectedCategoriesPrev.includes(category)) return false;
+      
+      const gender = getGenderFromItemColor(sku);
+      if (selectedGendersPrev.length > 0 && !selectedGendersPrev.includes(gender)) return false;
+      
       return true;
     });
-  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev]);
+  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev, selectedGendersPrev]);
 
   const prevFilteredReturnData = useMemo(() => {
     const fy25Return = uploadedFiles
@@ -2484,15 +2526,20 @@ Dyno Dashboard Auto-Mail`
       const channel = row.channel_name || 'Unknown';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const sku = row.item_color || row.itemcolor || row.barcode || '';
 
       if (selectedMonthPrev.length > 0 && !selectedMonthPrev.includes(month)) return false;
       if (selectedDatePrev !== 'All' && date !== selectedDatePrev) return false;
       if (selectedChannelsPrev.length > 0 && !selectedChannelsPrev.includes(channel)) return false;
       if (selectedDivisionPrev !== 'All' && division !== selectedDivisionPrev) return false;
       if (selectedCategoriesPrev.length > 0 && !selectedCategoriesPrev.includes(category)) return false;
+      
+      const gender = getGenderFromItemColor(sku);
+      if (selectedGendersPrev.length > 0 && !selectedGendersPrev.includes(gender)) return false;
+      
       return true;
     });
-  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedChannelsPrev, selectedDivisionPrev, selectedCategoriesPrev]);
+  }, [uploadedFiles, selectedMonthPrev, selectedDatePrev, selectedChannelsPrev, selectedDivisionPrev, selectedCategoriesPrev, selectedGendersPrev]);
 
   const prevFilterOptions = useMemo(() => {
     const fy25Data = uploadedFiles
@@ -2729,6 +2776,7 @@ Dyno Dashboard Auto-Mail`
     const salesByChannel = {};
     const salesByDivision = {};
     const salesByCategory = {};
+    const salesByGender = { 'Girls': { sales: 0, units: 0 }, 'Boys': { sales: 0, units: 0 }, 'Unisex': { sales: 0, units: 0 } };
 
     filteredData.forEach(row => {
       const val = row.priceVal;
@@ -2737,6 +2785,7 @@ Dyno Dashboard Auto-Mail`
       const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
+      const sku = row.item_color || row.itemcolor || row.barcode || '';
 
       if (!salesByDate[dateKey]) salesByDate[dateKey] = { sales: 0, units: 0, parsedDate: row.parsedDate };
       salesByDate[dateKey].sales += val;
@@ -2753,6 +2802,10 @@ Dyno Dashboard Auto-Mail`
       if (!salesByCategory[category]) salesByCategory[category] = { sales: 0, units: 0 };
       salesByCategory[category].sales += val;
       salesByCategory[category].units += 1;
+
+      const gender = getGenderFromItemColor(sku);
+      salesByGender[gender].sales += val;
+      salesByGender[gender].units += 1;
     });
 
     const formatChart = (obj) => Object.entries(obj)
@@ -2774,7 +2827,15 @@ Dyno Dashboard Auto-Mail`
       dateData,
       channelData: formatChart(salesByChannel).slice(0, 5),
       divisionData: formatChart(salesByDivision),
-      categoryData: formatChart(salesByCategory).slice(0, 5)
+      categoryData: formatChart(salesByCategory).slice(0, 5),
+      genderData: Object.entries(salesByGender)
+        .map(([name, dataObj]) => ({ 
+          name, 
+          sales: Math.round(dataObj.sales), 
+          units: dataObj.units, 
+          value: insightType === 'revenue' ? Math.round(dataObj.sales) : dataObj.units 
+        }))
+        .filter(entry => entry.value > 0)
     };
   }, [filteredData, insightType]);
 
@@ -4068,6 +4129,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     onChange={setSelectedCategoriesPrev} 
                     placeholder="All Categories" 
                   />
+                  <CustomMultiSelect 
+                    values={selectedGendersPrev} 
+                    options={['Boys', 'Girls', 'Unisex']} 
+                    onChange={setSelectedGendersPrev} 
+                    placeholder="All Genders" 
+                  />
                 </div>
 
                 {/* Top Metrics */}
@@ -5313,7 +5380,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   <>
                     <CustomMultiSelect values={selectedChannels} options={filterOptions.channels} onChange={setSelectedChannels} placeholder="All Channels" />
                     {activePage !== 'product_level' && (
-                      <CustomMultiSelect values={selectedCategories} options={filterOptions.categories} onChange={setSelectedCategories} placeholder="All Categories" />
+                      <>
+                        <CustomMultiSelect values={selectedCategories} options={filterOptions.categories} onChange={setSelectedCategories} placeholder="All Categories" />
+                        <CustomMultiSelect values={selectedGenders} options={['Boys', 'Girls', 'Unisex']} onChange={setSelectedGenders} placeholder="All Genders" />
+                      </>
                     )}
                   </>
                 )}
@@ -5812,6 +5882,56 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 const totalDivisionVal = chartsData.divisionData ? chartsData.divisionData.reduce((sum, d) => sum + d.value, 0) : 0;
                                 const item = chartsData.divisionData ? chartsData.divisionData.find(d => d.name.toLowerCase() === value.toLowerCase()) : null;
                                 const pct = totalDivisionVal > 0 && item ? ((item.value / totalDivisionVal) * 100).toFixed(1) : '0.0';
+                                return (
+                                  <span style={{ 
+                                    color: '#ffffff', 
+                                    fontSize: 'var(--legend-font-size, 18px)', 
+                                    fontWeight: 'var(--legend-font-weight, 800)', 
+                                    marginLeft: '8px',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.03em'
+                                  }}>
+                                    {value}: {pct}%
+                                  </span>
+                                );
+                              }}
+                              iconSize={14}
+                              wrapperStyle={{ paddingTop: '1.5rem' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Sales by Gender */}
+                    <div className="card">
+                      <div className="card-header">
+                        <h3 className="card-title">{insightType === 'revenue' ? 'Revenue by Gender' : 'Units by Gender'}</h3>
+                      </div>
+                      <div style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                          <PieChart>
+                            <Pie
+                              data={chartsData.genderData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={isMobile ? 35 : 45}
+                              outerRadius={isMobile ? 70 : 90}
+                              paddingAngle={5}
+                              dataKey="value"
+                              activeShape={renderActiveShape}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {chartsData.genderData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={getGenderColor(entry.name)} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} cursor={false} />
+                            <Legend 
+                              formatter={(value) => {
+                                const totalGenderVal = chartsData.genderData ? chartsData.genderData.reduce((sum, d) => sum + d.value, 0) : 0;
+                                const item = chartsData.genderData ? chartsData.genderData.find(d => d.name === value) : null;
+                                const pct = totalGenderVal > 0 && item ? ((item.value / totalGenderVal) * 100).toFixed(1) : '0.0';
                                 return (
                                   <span style={{ 
                                     color: '#ffffff', 
