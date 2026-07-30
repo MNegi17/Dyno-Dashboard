@@ -468,6 +468,8 @@ Dyno Dashboard Auto-Mail`
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryTab, setInventoryTab] = useState('all'); // 'all', 'alerts', 'new_launches'
   const [inventoryPage, setInventoryPage] = useState(1);
+  const [topSellingPage, setTopSellingPage] = useState(1);
+  const [prevTopSellingPage, setPrevTopSellingPage] = useState(1);
 
   // Second Product Returns Search States
   const [productSearchReturn, setProductSearchReturn] = useState('');
@@ -2738,6 +2740,16 @@ Dyno Dashboard Auto-Mail`
       });
   }, [prevFilteredData, prevFilteredReturnData, skuSortFieldPrev, skuSortDirectionPrev, skuSearchQueryPrev, latestInventoryData]);
 
+  useEffect(() => {
+    setPrevTopSellingPage(1);
+  }, [skuSearchQueryPrev, skuSortFieldPrev, skuSortDirectionPrev, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev, selectedGendersPrev]);
+
+  const totalPrevTopSellingPages = Math.ceil(prevSkuAnalysisData.length / 50) || 1;
+  const paginatedPrevSkuAnalysisData = useMemo(() => {
+    const startIdx = (prevTopSellingPage - 1) * 50;
+    return prevSkuAnalysisData.slice(startIdx, startIdx + 50);
+  }, [prevSkuAnalysisData, prevTopSellingPage]);
+
   const metrics = useMemo(() => {
     if (!filteredData.length) return { totalSales: 0, totalUnits: 0, uniqueChannels: 0, uniqueCategories: 0, totalReturns: 0, overallReturnPct: 0 };
 
@@ -2898,6 +2910,16 @@ Dyno Dashboard Auto-Mail`
         }
       });
   }, [filteredData, filteredReturnData, skuSortField, skuSortDirection, skuSearchQuery, latestInventoryData]);
+
+  useEffect(() => {
+    setTopSellingPage(1);
+  }, [skuSearchQuery, skuSortField, skuSortDirection, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedGenders, selectedFY]);
+
+  const totalTopSellingPages = Math.ceil(skuAnalysisData.length / 50) || 1;
+  const paginatedSkuAnalysisData = useMemo(() => {
+    const startIdx = (topSellingPage - 1) * 50;
+    return skuAnalysisData.slice(startIdx, startIdx + 50);
+  }, [skuAnalysisData, topSellingPage]);
 
   const topInsights = useMemo(() => {
     if (!filteredData.length) return null;
@@ -3815,25 +3837,25 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Star size={20} />
               <span>Insights</span>
             </div>
+            <div className={`nav-item ${activePage === 'inventory' ? 'active' : ''}`} onClick={() => { setActivePage('inventory'); setIsMobileMenuOpen(false); }}>
+              <Package size={20} />
+              <span>Merchandising Corner</span>
+            </div>
             <div className={`nav-item ${activePage === 'product_level' ? 'active' : ''}`} onClick={() => { setActivePage('product_level'); setIsMobileMenuOpen(false); }}>
               <Layers size={20} />
               <span>Product Level</span>
-            </div>
-            <div className={`nav-item ${activePage === 'intelli_report' ? 'active' : ''}`} onClick={() => { setActivePage('intelli_report'); setIsMobileMenuOpen(false); }}>
-              <Cpu size={20} />
-              <span>Intelli Report</span>
             </div>
             <div className={`nav-item ${activePage === 'goals' ? 'active' : ''}`} onClick={() => { setActivePage('goals'); setIsMobileMenuOpen(false); }}>
               <Target size={20} />
               <span>Target & Goals</span>
             </div>
-            <div className={`nav-item ${activePage === 'inventory' ? 'active' : ''}`} onClick={() => { setActivePage('inventory'); setIsMobileMenuOpen(false); }}>
-              <Package size={20} />
-              <span>Inventory</span>
-            </div>
             <div className={`nav-item ${activePage === 'previous_years' ? 'active' : ''}`} onClick={() => { setActivePage('previous_years'); setIsMobileMenuOpen(false); }}>
               <Database size={20} />
               <span>Previous Years</span>
+            </div>
+            <div className={`nav-item ${activePage === 'intelli_report' ? 'active' : ''}`} onClick={() => { setActivePage('intelli_report'); setIsMobileMenuOpen(false); }}>
+              <Cpu size={20} />
+              <span>Get Report</span>
             </div>
             {userRole === 'admin' && (
               <>
@@ -3875,9 +3897,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
               {activePage === 'product_level' && 'Product Level Analysis'}
-              {activePage === 'intelli_report' && 'Intelli Report'}
+              {activePage === 'intelli_report' && 'Get Report'}
               {activePage === 'goals' && 'Target & Goal Tracking'}
-              {activePage === 'inventory' && 'Inventory & PO Planning'}
+              {activePage === 'inventory' && 'Merchandising Corner'}
               {activePage === 'previous_years' && 'Previous Years Performance'}
             </h1>
             <p>Real-time insights from your daily reports</p>
@@ -4583,23 +4605,72 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         </tr>
                       </thead>
                       <tbody>
-                        {prevSkuAnalysisData.slice(0, 100).map((item, idx) => (
-                          <tr key={idx}>
-                            <td style={{ fontWeight: 600 }}>{item.sku}</td>
-                            <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
-                            <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
-                              {item.returns} ({item.returnPct.toFixed(0)}%)
-                            </td>
-                            <td>{formatCurrency(item.revenue)}</td>
-                            <td>{formatCurrency(item.revenue / item.units)}</td>
-                            <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
-                              {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                        {paginatedPrevSkuAnalysisData.length > 0 ? (
+                          paginatedPrevSkuAnalysisData.map((item, idx) => (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 600 }}>{item.sku}</td>
+                              <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
+                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                                {item.returns} ({item.returnPct.toFixed(0)}%)
+                              </td>
+                              <td>{formatCurrency(item.revenue)}</td>
+                              <td>{formatCurrency(item.revenue / item.units)}</td>
+                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                                {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
+                              No products found matching your search or filters.
                             </td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Pagination controls */}
+                  {prevSkuAnalysisData.length > 50 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                        Showing {Math.min(prevSkuAnalysisData.length, (prevTopSellingPage - 1) * 50 + 1)} to {Math.min(prevSkuAnalysisData.length, prevTopSellingPage * 50)} of {prevSkuAnalysisData.length} products
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          disabled={prevTopSellingPage === 1}
+                          onClick={() => setPrevTopSellingPage(prev => Math.max(1, prev - 1))}
+                          className="upload-btn"
+                          style={{
+                            padding: '0.4rem 1rem',
+                            fontSize: '0.85rem',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            cursor: prevTopSellingPage === 1 ? 'not-allowed' : 'pointer',
+                            opacity: prevTopSellingPage === 1 ? 0.5 : 1
+                          }}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          disabled={prevTopSellingPage === totalPrevTopSellingPages}
+                          onClick={() => setPrevTopSellingPage(prev => Math.min(totalPrevTopSellingPages, prev + 1))}
+                          className="upload-btn"
+                          style={{
+                            padding: '0.4rem 1rem',
+                            fontSize: '0.85rem',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            cursor: prevTopSellingPage === totalPrevTopSellingPages ? 'not-allowed' : 'pointer',
+                            opacity: prevTopSellingPage === totalPrevTopSellingPages ? 0.5 : 1
+                          }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -6264,23 +6335,72 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         </tr>
                       </thead>
                       <tbody>
-                        {skuAnalysisData.slice(0, 100).map((item, idx) => (
-                          <tr key={idx}>
-                            <td style={{ fontWeight: 600 }}>{item.sku}</td>
-                            <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
-                            <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
-                              {item.returns} ({item.returnPct.toFixed(0)}%)
-                            </td>
-                            <td>{formatCurrency(item.revenue)}</td>
-                            <td>{formatCurrency(item.revenue / item.units)}</td>
-                            <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
-                              {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                        {paginatedSkuAnalysisData.length > 0 ? (
+                          paginatedSkuAnalysisData.map((item, idx) => (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 600 }}>{item.sku}</td>
+                              <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
+                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                                {item.returns} ({item.returnPct.toFixed(0)}%)
+                              </td>
+                              <td>{formatCurrency(item.revenue)}</td>
+                              <td>{formatCurrency(item.revenue / item.units)}</td>
+                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                                {formatNumber(latestInventoryData.map[item.sku] || 0)}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>
+                              No products found matching your search or filters.
                             </td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  {/* Pagination controls */}
+                  {skuAnalysisData.length > 50 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                        Showing {Math.min(skuAnalysisData.length, (topSellingPage - 1) * 50 + 1)} to {Math.min(skuAnalysisData.length, topSellingPage * 50)} of {skuAnalysisData.length} products
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          disabled={topSellingPage === 1}
+                          onClick={() => setTopSellingPage(prev => Math.max(1, prev - 1))}
+                          className="upload-btn"
+                          style={{
+                            padding: '0.4rem 1rem',
+                            fontSize: '0.85rem',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            cursor: topSellingPage === 1 ? 'not-allowed' : 'pointer',
+                            opacity: topSellingPage === 1 ? 0.5 : 1
+                          }}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          disabled={topSellingPage === totalTopSellingPages}
+                          onClick={() => setTopSellingPage(prev => Math.min(totalTopSellingPages, prev + 1))}
+                          className="upload-btn"
+                          style={{
+                            padding: '0.4rem 1rem',
+                            fontSize: '0.85rem',
+                            background: 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            cursor: topSellingPage === totalTopSellingPages ? 'not-allowed' : 'pointer',
+                            opacity: topSellingPage === totalTopSellingPages ? 0.5 : 1
+                          }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </>
             )}
