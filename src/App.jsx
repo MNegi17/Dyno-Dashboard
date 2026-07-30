@@ -297,6 +297,25 @@ const getGenderColor = (genderName) => {
   return '#ba54f5'; // Vibrant purple for Unisex
 };
 
+const getTierStyle = (tier) => {
+  if (tier === 'golden') {
+    return {
+      background: '#3d3000',
+      borderLeft: '5px solid #f59e0b'
+    };
+  } else if (tier === 'green') {
+    return {
+      background: '#0c3522',
+      borderLeft: '5px solid #10b981'
+    };
+  } else {
+    return {
+      background: '#3b1414',
+      borderLeft: '5px solid #ef4444'
+    };
+  }
+};
+
 // Determine role from email — only the admin email gets admin access
 const getRoleFromEmail = (email) => {
   return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
@@ -470,6 +489,8 @@ Dyno Dashboard Auto-Mail`
   const [inventoryPage, setInventoryPage] = useState(1);
   const [topSellingPage, setTopSellingPage] = useState(1);
   const [prevTopSellingPage, setPrevTopSellingPage] = useState(1);
+  const [skuTierFilter, setSkuTierFilter] = useState('all');
+  const [prevSkuTierFilter, setPrevSkuTierFilter] = useState('all');
 
   // Second Product Returns Search States
   const [productSearchReturn, setProductSearchReturn] = useState('');
@@ -488,10 +509,18 @@ Dyno Dashboard Auto-Mail`
   const [selectedCategoriesPrev, setSelectedCategoriesPrev] = useState([]);
   const [selectedGendersPrev, setSelectedGendersPrev] = useState([]);
 
-  // Previous Years SKU Sorting States
+  // Dashboard SKU Calculative Column Filter States
+  const [skuMinUnitsFilter, setSkuMinUnitsFilter] = useState(0);
+  const [skuMinReturnPctFilter, setSkuMinReturnPctFilter] = useState(0);
+  const [skuInventoryStockFilter, setSkuInventoryStockFilter] = useState('all');
+
+  // Previous Years SKU Sorting & Calculative Column Filter States
   const [skuSortFieldPrev, setSkuSortFieldPrev] = useState('units');
   const [skuSortDirectionPrev, setSkuSortDirectionPrev] = useState('desc');
   const [activeTableFilterDropdownPrev, setActiveTableFilterDropdownPrev] = useState(null);
+  const [skuMinUnitsFilterPrev, setSkuMinUnitsFilterPrev] = useState(0);
+  const [skuMinReturnPctFilterPrev, setSkuMinReturnPctFilterPrev] = useState(0);
+  const [skuInventoryStockFilterPrev, setSkuInventoryStockFilterPrev] = useState('all');
 
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState([]);
@@ -2680,20 +2709,16 @@ Dyno Dashboard Auto-Mail`
     };
   }, [prevFilteredData, insightType]);
 
-  const prevSkuAnalysisData = useMemo(() => {
+  const basePrevSkuAnalysis = useMemo(() => {
     if (!prevFilteredData.length) return [];
     
     const returnMap = {};
     prevFilteredReturnData.forEach(row => {
       const sku = row.item_color || 'Unknown';
-      if (!returnMap[sku]) {
-        returnMap[sku] = 0;
-      }
-      returnMap[sku] += row.return_qty;
+      returnMap[sku] = (returnMap[sku] || 0) + row.return_qty;
     });
 
     const skuMap = {};
-    
     prevFilteredData.forEach(row => {
       const val = row.priceVal;
       const sku = row.item_color || row.itemcolor || row.barcode || 'Unknown';
@@ -2711,7 +2736,7 @@ Dyno Dashboard Auto-Mail`
       skuMap[sku].revenue += val;
     });
     
-    let result = Object.values(skuMap)
+    const result = Object.values(skuMap)
       .map(item => {
         const returns = returnMap[item.sku] || 0;
         const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
@@ -2724,25 +2749,76 @@ Dyno Dashboard Auto-Mail`
         };
       });
 
+    const totalUnitsAll = result.reduce((sum, item) => sum + item.units, 0);
+    const sortedByVolume = [...result].sort((a, b) => b.units - a.units);
+    
+    const tierMap = {};
+    let cumUnits = 0;
+    
+    sortedByVolume.forEach(item => {
+      const prevPct = totalUnitsAll > 0 ? (cumUnits / totalUnitsAll) * 100 : 0;
+      cumUnits += item.units;
+      
+      let tier = 'red';
+      if (prevPct < 50) {
+        tier = 'golden';
+      } else if (prevPct < 80) {
+        tier = 'green';
+      } else {
+        tier = 'red';
+      }
+      tierMap[item.sku] = tier;
+    });
+
+    return result.map(item => ({
+      ...item,
+      tier: tierMap[item.sku] || 'red'
+    }));
+  }, [prevFilteredData, prevFilteredReturnData, latestInventoryData]);
+
+  const prevSkuAnalysisData = useMemo(() => {
+    let result = basePrevSkuAnalysis;
+    if (!result.length) return [];
+
+    if (prevSkuTierFilter && prevSkuTierFilter !== 'all') {
+      result = result.filter(item => item.tier === prevSkuTierFilter);
+    }
+
     if (skuSearchQueryPrev.trim()) {
       const q = skuSearchQueryPrev.toLowerCase().trim();
       result = result.filter(item => item.sku.toLowerCase().includes(q));
     }
 
-    return result.sort((a, b) => {
-        if (skuSortFieldPrev === 'returns') {
-          return skuSortDirectionPrev === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
-        } else if (skuSortFieldPrev === 'inventory') {
-          return skuSortDirectionPrev === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
-        } else {
-          return skuSortDirectionPrev === 'desc' ? b.units - a.units : a.units - b.units;
-        }
-      });
-  }, [prevFilteredData, prevFilteredReturnData, skuSortFieldPrev, skuSortDirectionPrev, skuSearchQueryPrev, latestInventoryData]);
+    if (skuMinUnitsFilterPrev > 0) {
+      result = result.filter(item => item.units >= skuMinUnitsFilterPrev);
+    }
+
+    if (skuMinReturnPctFilterPrev > 0) {
+      result = result.filter(item => item.returnPct >= skuMinReturnPctFilterPrev);
+    }
+
+    if (skuInventoryStockFilterPrev === 'in_stock') {
+      result = result.filter(item => item.inventory > 0);
+    } else if (skuInventoryStockFilterPrev === 'out_of_stock') {
+      result = result.filter(item => item.inventory === 0);
+    } else if (skuInventoryStockFilterPrev === 'min_100') {
+      result = result.filter(item => item.inventory >= 100);
+    }
+
+    return [...result].sort((a, b) => {
+      if (skuSortFieldPrev === 'returns') {
+        return skuSortDirectionPrev === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+      } else if (skuSortFieldPrev === 'inventory') {
+        return skuSortDirectionPrev === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
+      } else {
+        return skuSortDirectionPrev === 'desc' ? b.units - a.units : a.units - b.units;
+      }
+    });
+  }, [basePrevSkuAnalysis, skuSortFieldPrev, skuSortDirectionPrev, skuSearchQueryPrev, prevSkuTierFilter, skuMinUnitsFilterPrev, skuMinReturnPctFilterPrev, skuInventoryStockFilterPrev]);
 
   useEffect(() => {
     setPrevTopSellingPage(1);
-  }, [skuSearchQueryPrev, skuSortFieldPrev, skuSortDirectionPrev, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev, selectedGendersPrev]);
+  }, [skuSearchQueryPrev, skuSortFieldPrev, skuSortDirectionPrev, prevSkuTierFilter, skuMinUnitsFilterPrev, skuMinReturnPctFilterPrev, skuInventoryStockFilterPrev, selectedMonthPrev, selectedDatePrev, selectedDivisionPrev, selectedChannelsPrev, selectedCategoriesPrev, selectedGendersPrev]);
 
   const totalPrevTopSellingPages = Math.ceil(prevSkuAnalysisData.length / 50) || 1;
   const paginatedPrevSkuAnalysisData = useMemo(() => {
@@ -2851,20 +2927,16 @@ Dyno Dashboard Auto-Mail`
     };
   }, [filteredData, insightType]);
 
-  const skuAnalysisData = useMemo(() => {
+  const baseSkuAnalysis = useMemo(() => {
     if (!filteredData.length) return [];
     
     const returnMap = {};
     filteredReturnData.forEach(row => {
       const sku = row.item_color || 'Unknown';
-      if (!returnMap[sku]) {
-        returnMap[sku] = 0;
-      }
-      returnMap[sku] += row.return_qty;
+      returnMap[sku] = (returnMap[sku] || 0) + row.return_qty;
     });
 
     const skuMap = {};
-    
     filteredData.forEach(row => {
       const val = row.priceVal;
       const sku = row.item_color || row.itemcolor || row.barcode || 'Unknown';
@@ -2882,7 +2954,7 @@ Dyno Dashboard Auto-Mail`
       skuMap[sku].revenue += val;
     });
     
-    let result = Object.values(skuMap)
+    const result = Object.values(skuMap)
       .map(item => {
         const returns = returnMap[item.sku] || 0;
         const returnPct = item.units > 0 ? (returns / item.units) * 100 : 0;
@@ -2895,25 +2967,76 @@ Dyno Dashboard Auto-Mail`
         };
       });
 
+    const totalUnitsAll = result.reduce((sum, item) => sum + item.units, 0);
+    const sortedByVolume = [...result].sort((a, b) => b.units - a.units);
+    
+    const tierMap = {};
+    let cumUnits = 0;
+    
+    sortedByVolume.forEach(item => {
+      const prevPct = totalUnitsAll > 0 ? (cumUnits / totalUnitsAll) * 100 : 0;
+      cumUnits += item.units;
+      
+      let tier = 'red';
+      if (prevPct < 50) {
+        tier = 'golden';
+      } else if (prevPct < 80) {
+        tier = 'green';
+      } else {
+        tier = 'red';
+      }
+      tierMap[item.sku] = tier;
+    });
+
+    return result.map(item => ({
+      ...item,
+      tier: tierMap[item.sku] || 'red'
+    }));
+  }, [filteredData, filteredReturnData, latestInventoryData]);
+
+  const skuAnalysisData = useMemo(() => {
+    let result = baseSkuAnalysis;
+    if (!result.length) return [];
+
+    if (skuTierFilter && skuTierFilter !== 'all') {
+      result = result.filter(item => item.tier === skuTierFilter);
+    }
+
     if (skuSearchQuery.trim()) {
       const q = skuSearchQuery.toLowerCase().trim();
       result = result.filter(item => item.sku.toLowerCase().includes(q));
     }
 
-    return result.sort((a, b) => {
-        if (skuSortField === 'returns') {
-          return skuSortDirection === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
-        } else if (skuSortField === 'inventory') {
-          return skuSortDirection === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
-        } else {
-          return skuSortDirection === 'desc' ? b.units - a.units : a.units - b.units;
-        }
-      });
-  }, [filteredData, filteredReturnData, skuSortField, skuSortDirection, skuSearchQuery, latestInventoryData]);
+    if (skuMinUnitsFilter > 0) {
+      result = result.filter(item => item.units >= skuMinUnitsFilter);
+    }
+
+    if (skuMinReturnPctFilter > 0) {
+      result = result.filter(item => item.returnPct >= skuMinReturnPctFilter);
+    }
+
+    if (skuInventoryStockFilter === 'in_stock') {
+      result = result.filter(item => item.inventory > 0);
+    } else if (skuInventoryStockFilter === 'out_of_stock') {
+      result = result.filter(item => item.inventory === 0);
+    } else if (skuInventoryStockFilter === 'min_100') {
+      result = result.filter(item => item.inventory >= 100);
+    }
+
+    return [...result].sort((a, b) => {
+      if (skuSortField === 'returns') {
+        return skuSortDirection === 'desc' ? b.returnPct - a.returnPct : a.returnPct - b.returnPct;
+      } else if (skuSortField === 'inventory') {
+        return skuSortDirection === 'desc' ? b.inventory - a.inventory : a.inventory - b.inventory;
+      } else {
+        return skuSortDirection === 'desc' ? b.units - a.units : a.units - b.units;
+      }
+    });
+  }, [baseSkuAnalysis, skuSortField, skuSortDirection, skuSearchQuery, skuTierFilter, skuMinUnitsFilter, skuMinReturnPctFilter, skuInventoryStockFilter]);
 
   useEffect(() => {
     setTopSellingPage(1);
-  }, [skuSearchQuery, skuSortField, skuSortDirection, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedGenders, selectedFY]);
+  }, [skuSearchQuery, skuSortField, skuSortDirection, skuTierFilter, skuMinUnitsFilter, skuMinReturnPctFilter, skuInventoryStockFilter, selectedMonth, selectedDate, selectedDivision, selectedChannels, selectedCategories, selectedGenders, selectedFY]);
 
   const totalTopSellingPages = Math.ceil(skuAnalysisData.length / 50) || 1;
   const paginatedSkuAnalysisData = useMemo(() => {
@@ -4330,20 +4453,117 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 <div className="card">
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                     <h3 className="card-title" style={{ margin: 0 }}>Top Selling Items</h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
-                      <Search size={16} style={{ color: 'var(--text-secondary)' }} />
-                      <input 
-                        type="text"
-                        placeholder="Search SKU..."
-                        value={skuSearchQueryPrev}
-                        onChange={(e) => setSkuSearchQueryPrev(e.target.value)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
-                      />
-                      {skuSearchQueryPrev && (
-                        <button onClick={() => setSkuSearchQueryPrev('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
-                          <X size={14} />
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      {/* Tier Filter Pills */}
+                      <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <button
+                          onClick={() => setPrevSkuTierFilter('all')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: prevSkuTierFilter === 'all' ? 'var(--accent-color)' : 'transparent',
+                            color: prevSkuTierFilter === 'all' ? '#fff' : 'var(--text-secondary)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          All Tiers
+                        </button>
+                        <button
+                          onClick={() => setPrevSkuTierFilter('golden')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: prevSkuTierFilter === 'golden' ? '#f59e0b' : 'transparent',
+                            color: prevSkuTierFilter === 'golden' ? '#000' : '#f59e0b',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Golden
+                        </button>
+                        <button
+                          onClick={() => setPrevSkuTierFilter('green')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: prevSkuTierFilter === 'green' ? '#10b981' : 'transparent',
+                            color: prevSkuTierFilter === 'green' ? '#000' : '#10b981',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Green
+                        </button>
+                        <button
+                          onClick={() => setPrevSkuTierFilter('red')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: prevSkuTierFilter === 'red' ? '#ef4444' : 'transparent',
+                            color: prevSkuTierFilter === 'red' ? '#fff' : '#ef4444',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Red
+                        </button>
+                      </div>
+
+                      {(prevSkuMinUnitsFilter > 0 || prevSkuMinReturnPctFilter > 0 || prevSkuInventoryStockFilter !== 'all') && (
+                        <button
+                          onClick={() => {
+                            setPrevSkuMinUnitsFilter(0);
+                            setPrevSkuMinReturnPctFilter(0);
+                            setPrevSkuInventoryStockFilter('all');
+                          }}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            color: '#ff8d72',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title="Clear active column filters"
+                        >
+                          <X size={12} /> Clear Column Filters
                         </button>
                       )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
+                        <Search size={16} style={{ color: 'var(--text-secondary)' }} />
+                        <input 
+                          type="text"
+                          placeholder="Search SKU..."
+                          value={skuSearchQueryPrev}
+                          onChange={(e) => setSkuSearchQueryPrev(e.target.value)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
+                        />
+                        {skuSearchQueryPrev && (
+                          <button onClick={() => setSkuSearchQueryPrev('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="table-wrapper">
@@ -4354,6 +4574,11 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Units Sold</span>
+                              {prevSkuMinUnitsFilter > 0 && (
+                                <span style={{ fontSize: '0.7rem', color: 'var(--accent-color)', fontWeight: 800, background: 'rgba(186,84,245,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  &gt;{prevSkuMinUnitsFilter}
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -4362,7 +4587,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortFieldPrev === 'units' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'units' || prevSkuMinUnitsFilter > 0) ? 'var(--accent-color)' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4370,7 +4595,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Units Sold"
+                                title="Filter / Sort Units"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'units' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -4384,19 +4609,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4410,12 +4638,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4429,14 +4657,47 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Min Units
+                                </div>
+                                {[0, 50, 100, 250, 500, 1000].map(val => (
+                                  <div 
+                                    key={val}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: prevSkuMinUnitsFilter === val ? 'var(--accent-color)' : 'var(--text-primary)',
+                                      fontWeight: prevSkuMinUnitsFilter === val ? '700' : 'normal',
+                                      background: prevSkuMinUnitsFilter === val ? 'rgba(186,84,245,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPrevSkuMinUnitsFilter(val);
+                                      setActiveTableFilterDropdownPrev(null);
+                                    }}
+                                  >
+                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {prevSkuMinUnitsFilter === val && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Return(%)</span>
+                              {prevSkuMinReturnPctFilter > 0 && (
+                                <span style={{ fontSize: '0.7rem', color: '#ff8d72', fontWeight: 800, background: 'rgba(255,141,114,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  &gt;{prevSkuMinReturnPctFilter}%
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -4445,7 +4706,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortFieldPrev === 'returns' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'returns' || prevSkuMinReturnPctFilter > 0) ? '#ff8d72' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4453,7 +4714,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Return(%)"
+                                title="Filter / Sort Return(%)"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'returns' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -4467,19 +4728,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4493,12 +4757,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4512,8 +4776,36 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Min Return %
+                                </div>
+                                {[0, 10, 20, 30, 40, 50].map(val => (
+                                  <div 
+                                    key={val}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: prevSkuMinReturnPctFilter === val ? '#ff8d72' : 'var(--text-primary)',
+                                      fontWeight: prevSkuMinReturnPctFilter === val ? '700' : 'normal',
+                                      background: prevSkuMinReturnPctFilter === val ? 'rgba(255,141,114,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPrevSkuMinReturnPctFilter(val);
+                                      setActiveTableFilterDropdownPrev(null);
+                                    }}
+                                  >
+                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {prevSkuMinReturnPctFilter === val && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
@@ -4522,6 +4814,11 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>{latestInventoryData.date ? `Inventory (LU-${formatLUDate(latestInventoryData.date)})` : 'Inventory (LU-N/A)'}</span>
+                              {prevSkuInventoryStockFilter !== 'all' && (
+                                <span style={{ fontSize: '0.7rem', color: '#00f2c4', fontWeight: 800, background: 'rgba(0,242,196,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  {prevSkuInventoryStockFilter === 'in_stock' ? '>0' : prevSkuInventoryStockFilter === 'out_of_stock' ? '=0' : '>100'}
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -4530,7 +4827,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortFieldPrev === 'inventory' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'inventory' || prevSkuInventoryStockFilter !== 'all') ? '#00f2c4' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4538,7 +4835,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Inventory"
+                                title="Filter / Sort Inventory"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdownPrev === 'inventory' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -4552,19 +4849,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4578,12 +4878,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -4607,15 +4907,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <tbody>
                         {paginatedPrevSkuAnalysisData.length > 0 ? (
                           paginatedPrevSkuAnalysisData.map((item, idx) => (
-                            <tr key={idx}>
-                              <td style={{ fontWeight: 600 }}>{item.sku}</td>
-                              <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
-                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                            <tr key={idx} style={getTierStyle(item.tier)}>
+                              <td style={{ fontWeight: 600, color: '#ffffff' }}>{item.sku}</td>
+                              <td style={{ fontWeight: 700, color: '#ffffff' }}>{formatNumber(item.units)}</td>
+                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : '#e2e8f0' }}>
                                 {item.returns} ({item.returnPct.toFixed(0)}%)
                               </td>
-                              <td>{formatCurrency(item.revenue)}</td>
-                              <td>{formatCurrency(item.revenue / item.units)}</td>
-                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                              <td style={{ color: '#ffffff', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                              <td style={{ color: '#ffffff' }}>{formatCurrency(item.revenue / item.units)}</td>
+                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : '#e2e8f0' }}>
                                 {formatNumber(latestInventoryData.map[item.sku] || 0)}
                               </td>
                             </tr>
@@ -6060,20 +6360,117 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 <div className="card">
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                     <h3 className="card-title" style={{ margin: 0 }}>Top Selling Items</h3>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
-                      <Search size={16} style={{ color: 'var(--text-secondary)' }} />
-                      <input 
-                        type="text"
-                        placeholder="Search SKU..."
-                        value={skuSearchQuery}
-                        onChange={(e) => setSkuSearchQuery(e.target.value)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
-                      />
-                      {skuSearchQuery && (
-                        <button onClick={() => setSkuSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
-                          <X size={14} />
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      {/* Tier Filter Pills */}
+                      <div style={{ display: 'flex', gap: '0.35rem', background: 'rgba(0,0,0,0.2)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <button
+                          onClick={() => setSkuTierFilter('all')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: skuTierFilter === 'all' ? 'var(--accent-color)' : 'transparent',
+                            color: skuTierFilter === 'all' ? '#fff' : 'var(--text-secondary)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          All Tiers
+                        </button>
+                        <button
+                          onClick={() => setSkuTierFilter('golden')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: skuTierFilter === 'golden' ? '#f59e0b' : 'transparent',
+                            color: skuTierFilter === 'golden' ? '#000' : '#f59e0b',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Golden
+                        </button>
+                        <button
+                          onClick={() => setSkuTierFilter('green')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: skuTierFilter === 'green' ? '#10b981' : 'transparent',
+                            color: skuTierFilter === 'green' ? '#000' : '#10b981',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Green
+                        </button>
+                        <button
+                          onClick={() => setSkuTierFilter('red')}
+                          style={{
+                            padding: '4px 12px',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            borderRadius: '4px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            background: skuTierFilter === 'red' ? '#ef4444' : 'transparent',
+                            color: skuTierFilter === 'red' ? '#fff' : '#ef4444',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Red
+                        </button>
+                      </div>
+
+                      {(skuMinUnitsFilter > 0 || skuMinReturnPctFilter > 0 || skuInventoryStockFilter !== 'all') && (
+                        <button
+                          onClick={() => {
+                            setSkuMinUnitsFilter(0);
+                            setSkuMinReturnPctFilter(0);
+                            setSkuInventoryStockFilter('all');
+                          }}
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.15)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            color: '#ff8d72',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '4px 10px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title="Clear active column filters"
+                        >
+                          <X size={12} /> Clear Column Filters
                         </button>
                       )}
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#1e1e2f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 'var(--radius-sm)', padding: '4px 8px', width: '220px' }}>
+                        <Search size={16} style={{ color: 'var(--text-secondary)' }} />
+                        <input 
+                          type="text"
+                          placeholder="Search SKU..."
+                          value={skuSearchQuery}
+                          onChange={(e) => setSkuSearchQuery(e.target.value)}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', width: '100%', padding: '2px 0' }}
+                        />
+                        {skuSearchQuery && (
+                          <button onClick={() => setSkuSearchQuery('')} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="table-wrapper">
@@ -6084,6 +6481,11 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Units Sold</span>
+                              {skuMinUnitsFilter > 0 && (
+                                <span style={{ fontSize: '0.7rem', color: 'var(--accent-color)', fontWeight: 800, background: 'rgba(186,84,245,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  &gt;{skuMinUnitsFilter}
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -6092,7 +6494,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortField === 'units' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortField === 'units' || skuMinUnitsFilter > 0) ? 'var(--accent-color)' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -6100,7 +6502,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Units Sold"
+                                title="Filter / Sort Units"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'units' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -6114,19 +6516,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6140,12 +6545,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortField === 'units' && skuSortDirection === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6159,14 +6564,47 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortField === 'units' && skuSortDirection === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Min Units
+                                </div>
+                                {[0, 50, 100, 250, 500, 1000].map(val => (
+                                  <div 
+                                    key={val}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: skuMinUnitsFilter === val ? 'var(--accent-color)' : 'var(--text-primary)',
+                                      fontWeight: skuMinUnitsFilter === val ? '700' : 'normal',
+                                      background: skuMinUnitsFilter === val ? 'rgba(186,84,245,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSkuMinUnitsFilter(val);
+                                      setActiveTableFilterDropdown(null);
+                                    }}
+                                  >
+                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilter === val && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Return(%)</span>
+                              {skuMinReturnPctFilter > 0 && (
+                                <span style={{ fontSize: '0.7rem', color: '#ff8d72', fontWeight: 800, background: 'rgba(255,141,114,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  &gt;{skuMinReturnPctFilter}%
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -6175,7 +6613,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortField === 'returns' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortField === 'returns' || skuMinReturnPctFilter > 0) ? '#ff8d72' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -6183,7 +6621,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Return(%)"
+                                title="Filter / Sort Return(%)"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'returns' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -6197,19 +6635,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6223,12 +6664,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortField === 'returns' && skuSortDirection === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6242,8 +6683,36 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortField === 'returns' && skuSortDirection === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Min Return %
+                                </div>
+                                {[0, 10, 20, 30, 40, 50].map(val => (
+                                  <div 
+                                    key={val}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: skuMinReturnPctFilter === val ? '#ff8d72' : 'var(--text-primary)',
+                                      fontWeight: skuMinReturnPctFilter === val ? '700' : 'normal',
+                                      background: skuMinReturnPctFilter === val ? 'rgba(255,141,114,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSkuMinReturnPctFilter(val);
+                                      setActiveTableFilterDropdown(null);
+                                    }}
+                                  >
+                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilter === val && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
@@ -6252,6 +6721,11 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>{latestInventoryData.date ? `Inventory (LU-${formatLUDate(latestInventoryData.date)})` : 'Inventory (LU-N/A)'}</span>
+                              {skuInventoryStockFilter !== 'all' && (
+                                <span style={{ fontSize: '0.7rem', color: '#00f2c4', fontWeight: 800, background: 'rgba(0,242,196,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
+                                  {skuInventoryStockFilter === 'in_stock' ? '>0' : skuInventoryStockFilter === 'out_of_stock' ? '=0' : '>100'}
+                                </span>
+                              )}
                               <button 
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -6260,7 +6734,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: skuSortField === 'inventory' ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortField === 'inventory' || skuInventoryStockFilter !== 'all') ? '#00f2c4' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -6268,7 +6742,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   borderRadius: '4px',
                                   transition: 'all 0.2s'
                                 }}
-                                title="Sort Inventory"
+                                title="Filter / Sort Inventory"
                               >
                                 <ChevronDown size={14} style={{ transform: activeTableFilterDropdown === 'inventory' ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                               </button>
@@ -6282,19 +6756,22 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   left: '50%',
                                   transform: 'translateX(-50%)',
                                   zIndex: 50,
-                                  minWidth: '120px',
+                                  minWidth: '175px',
                                   marginTop: '4px',
                                   background: 'var(--card-bg)',
                                   border: '1px solid var(--card-border)',
                                   borderRadius: 'var(--radius-sm)',
                                   boxShadow: '0 10px 25px -5px rgba(0,0,0,0.5)',
-                                  padding: '4px 0'
+                                  padding: '6px 0'
                                 }}
                               >
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Sort Column
+                                </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6308,12 +6785,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low
+                                  High to low {skuSortField === 'inventory' && skuSortDirection === 'desc' && '✓'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
                                   style={{ 
-                                    padding: '8px 12px', 
+                                    padding: '6px 12px', 
                                     cursor: 'pointer', 
                                     fontSize: '0.85rem',
                                     textAlign: 'left',
@@ -6327,8 +6804,41 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortField === 'inventory' && skuSortDirection === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Stock Status
+                                </div>
+                                {[
+                                  { id: 'all', label: 'All Inventory' },
+                                  { id: 'in_stock', label: 'In Stock (> 0)' },
+                                  { id: 'out_of_stock', label: 'Out of Stock (= 0)' },
+                                  { id: 'min_100', label: 'High Stock (> 100)' }
+                                ].map(opt => (
+                                  <div 
+                                    key={opt.id}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: skuInventoryStockFilter === opt.id ? '#00f2c4' : 'var(--text-primary)',
+                                      fontWeight: skuInventoryStockFilter === opt.id ? '700' : 'normal',
+                                      background: skuInventoryStockFilter === opt.id ? 'rgba(0,242,196,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSkuInventoryStockFilter(opt.id);
+                                      setActiveTableFilterDropdown(null);
+                                    }}
+                                  >
+                                    {opt.label} {skuInventoryStockFilter === opt.id && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
@@ -6337,15 +6847,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <tbody>
                         {paginatedSkuAnalysisData.length > 0 ? (
                           paginatedSkuAnalysisData.map((item, idx) => (
-                            <tr key={idx}>
-                              <td style={{ fontWeight: 600 }}>{item.sku}</td>
-                              <td style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{formatNumber(item.units)}</td>
-                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : 'var(--text-secondary)' }}>
+                            <tr key={idx} style={getTierStyle(item.tier)}>
+                              <td style={{ fontWeight: 600, color: '#ffffff' }}>{item.sku}</td>
+                              <td style={{ fontWeight: 700, color: '#ffffff' }}>{formatNumber(item.units)}</td>
+                              <td style={{ fontWeight: 600, color: item.returns > 0 ? '#ff8d72' : '#e2e8f0' }}>
                                 {item.returns} ({item.returnPct.toFixed(0)}%)
                               </td>
-                              <td>{formatCurrency(item.revenue)}</td>
-                              <td>{formatCurrency(item.revenue / item.units)}</td>
-                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : 'var(--text-secondary)' }}>
+                              <td style={{ color: '#ffffff', fontWeight: 600 }}>{formatCurrency(item.revenue)}</td>
+                              <td style={{ color: '#ffffff' }}>{formatCurrency(item.revenue / item.units)}</td>
+                              <td style={{ fontWeight: 600, color: (latestInventoryData.map[item.sku] || 0) > 0 ? '#00f2c4' : '#e2e8f0' }}>
                                 {formatNumber(latestInventoryData.map[item.sku] || 0)}
                               </td>
                             </tr>
