@@ -4523,12 +4523,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         </button>
                       </div>
 
-                      {(prevSkuMinUnitsFilter > 0 || prevSkuMinReturnPctFilter > 0 || prevSkuInventoryStockFilter !== 'all') && (
+                      {(skuMinUnitsFilterPrev > 0 || skuMinReturnPctFilterPrev > 0 || skuInventoryStockFilterPrev !== 'all') && (
                         <button
                           onClick={() => {
-                            setPrevSkuMinUnitsFilter(0);
-                            setPrevSkuMinReturnPctFilter(0);
-                            setPrevSkuInventoryStockFilter('all');
+                            setSkuMinUnitsFilterPrev(0);
+                            setSkuMinReturnPctFilterPrev(0);
+                            setSkuInventoryStockFilterPrev('all');
                           }}
                           style={{
                             background: 'rgba(239, 68, 68, 0.15)',
@@ -4574,9 +4574,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Units Sold</span>
-                              {prevSkuMinUnitsFilter > 0 && (
+                              {skuMinUnitsFilterPrev > 0 && (
                                 <span style={{ fontSize: '0.7rem', color: 'var(--accent-color)', fontWeight: 800, background: 'rgba(186,84,245,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
-                                  &gt;{prevSkuMinUnitsFilter}
+                                  &gt;{skuMinUnitsFilterPrev}
                                 </span>
                               )}
                               <button 
@@ -4587,7 +4587,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: (skuSortFieldPrev === 'units' || prevSkuMinUnitsFilter > 0) ? 'var(--accent-color)' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'units' || skuMinUnitsFilterPrev > 0) ? 'var(--accent-color)' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4674,17 +4674,17 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       cursor: 'pointer',
                                       fontSize: '0.85rem',
                                       textAlign: 'left',
-                                      color: prevSkuMinUnitsFilter === val ? 'var(--accent-color)' : 'var(--text-primary)',
-                                      fontWeight: prevSkuMinUnitsFilter === val ? '700' : 'normal',
-                                      background: prevSkuMinUnitsFilter === val ? 'rgba(186,84,245,0.15)' : 'transparent'
+                                      color: skuMinUnitsFilterPrev === val ? 'var(--accent-color)' : 'var(--text-primary)',
+                                      fontWeight: skuMinUnitsFilterPrev === val ? '700' : 'normal',
+                                      background: skuMinUnitsFilterPrev === val ? 'rgba(186,84,245,0.15)' : 'transparent'
                                     }}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setPrevSkuMinUnitsFilter(val);
+                                      setSkuMinUnitsFilterPrev(val);
                                       setActiveTableFilterDropdownPrev(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {prevSkuMinUnitsFilter === val && '✓'}
+                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilterPrev === val && '✓'}
                                   </div>
                                 ))}
                               </div>
@@ -4693,9 +4693,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>Return(%)</span>
-                              {prevSkuMinReturnPctFilter > 0 && (
+                              {skuMinReturnPctFilterPrev > 0 && (
                                 <span style={{ fontSize: '0.7rem', color: '#ff8d72', fontWeight: 800, background: 'rgba(255,141,114,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
-                                  &gt;{prevSkuMinReturnPctFilter}%
+                                  &gt;{skuMinReturnPctFilterPrev}%
                                 </span>
                               )}
                               <button 
@@ -4706,7 +4706,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: (skuSortFieldPrev === 'returns' || prevSkuMinReturnPctFilter > 0) ? '#ff8d72' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'returns' || skuMinReturnPctFilterPrev > 0) ? '#ff8d72' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4793,17 +4793,17 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       cursor: 'pointer',
                                       fontSize: '0.85rem',
                                       textAlign: 'left',
-                                      color: prevSkuMinReturnPctFilter === val ? '#ff8d72' : 'var(--text-primary)',
-                                      fontWeight: prevSkuMinReturnPctFilter === val ? '700' : 'normal',
-                                      background: prevSkuMinReturnPctFilter === val ? 'rgba(255,141,114,0.15)' : 'transparent'
+                                      color: skuMinReturnPctFilterPrev === val ? '#ff8d72' : 'var(--text-primary)',
+                                      fontWeight: skuMinReturnPctFilterPrev === val ? '700' : 'normal',
+                                      background: skuMinReturnPctFilterPrev === val ? 'rgba(255,141,114,0.15)' : 'transparent'
                                     }}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setPrevSkuMinReturnPctFilter(val);
+                                      setSkuMinReturnPctFilterPrev(val);
                                       setActiveTableFilterDropdownPrev(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {prevSkuMinReturnPctFilter === val && '✓'}
+                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilterPrev === val && '✓'}
                                   </div>
                                 ))}
                               </div>
@@ -4814,9 +4814,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           <th style={{ position: 'relative' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', justifyContent: 'center' }}>
                               <span>{latestInventoryData.date ? `Inventory (LU-${formatLUDate(latestInventoryData.date)})` : 'Inventory (LU-N/A)'}</span>
-                              {prevSkuInventoryStockFilter !== 'all' && (
+                              {skuInventoryStockFilterPrev !== 'all' && (
                                 <span style={{ fontSize: '0.7rem', color: '#00f2c4', fontWeight: 800, background: 'rgba(0,242,196,0.2)', padding: '1px 5px', borderRadius: '4px' }}>
-                                  {prevSkuInventoryStockFilter === 'in_stock' ? '>0' : prevSkuInventoryStockFilter === 'out_of_stock' ? '=0' : '>100'}
+                                  {skuInventoryStockFilterPrev === 'in_stock' ? '>0' : skuInventoryStockFilterPrev === 'out_of_stock' ? '=0' : '>100'}
                                 </span>
                               )}
                               <button 
@@ -4827,7 +4827,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                 style={{
                                   background: 'none',
                                   border: 'none',
-                                  color: (skuSortFieldPrev === 'inventory' || prevSkuInventoryStockFilter !== 'all') ? '#00f2c4' : 'var(--text-secondary)',
+                                  color: (skuSortFieldPrev === 'inventory' || skuInventoryStockFilterPrev !== 'all') ? '#00f2c4' : 'var(--text-secondary)',
                                   cursor: 'pointer',
                                   padding: '2px',
                                   display: 'flex',
@@ -4897,8 +4897,41 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high
+                                  Low to high {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'asc' && '✓'}
                                 </div>
+
+                                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
+
+                                <div style={{ padding: '4px 12px', fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                  Filter Stock Status
+                                </div>
+                                {[
+                                  { id: 'all', label: 'All Inventory' },
+                                  { id: 'in_stock', label: 'In Stock (> 0)' },
+                                  { id: 'out_of_stock', label: 'Out of Stock (= 0)' },
+                                  { id: 'min_100', label: 'High Stock (> 100)' }
+                                ].map(opt => (
+                                  <div 
+                                    key={opt.id}
+                                    className="custom-select-option"
+                                    style={{
+                                      padding: '6px 12px',
+                                      cursor: 'pointer',
+                                      fontSize: '0.85rem',
+                                      textAlign: 'left',
+                                      color: skuInventoryStockFilterPrev === opt.id ? '#00f2c4' : 'var(--text-primary)',
+                                      fontWeight: skuInventoryStockFilterPrev === opt.id ? '700' : 'normal',
+                                      background: skuInventoryStockFilterPrev === opt.id ? 'rgba(0,242,196,0.15)' : 'transparent'
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSkuInventoryStockFilterPrev(opt.id);
+                                      setActiveTableFilterDropdownPrev(null);
+                                    }}
+                                  >
+                                    {opt.label} {skuInventoryStockFilterPrev === opt.id && '✓'}
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </th>
