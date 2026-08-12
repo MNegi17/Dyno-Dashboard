@@ -547,39 +547,34 @@ Dyno Dashboard Auto-Mail`
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
 
-  // 1-second ticker for cooldown countdown & time display
+  // 1-second ticker for time display
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCooldownSeconds(getCooldownRemainingSeconds());
-      setLastSyncTime(getLastSyncTime());
-    }, 1000);
-    return () => clearInterval(timer);
+    const saved = getLastSyncTime();
+    if (saved) setLastSyncTime(saved);
   }, []);
 
   // Background auto-sync into staging layer (every 5 mins, does NOT re-render UI)
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (canTriggerManualSync()) {
-        try {
-          const res = await syncRealtimeSalesToSupabase();
-          if (res && res.success) {
-            setHasPendingUpdate(true);
-            setLastSyncTime(new Date());
-          }
-        } catch (e) {
-          console.warn('Background real-time sync:', e.message);
-        }
+      try {
+        const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+        const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+        await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+        setHasPendingUpdate(true);
+      } catch (e) {
+        console.warn('Background auto-sync ping:', e.message);
       }
-    }, 60000);
+    }, 5 * 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // On Refresh: Instant UI update in < 500ms from Supabase + non-blocking background sync
+  // On Refresh: Instant UI update in < 300ms from Supabase + immediately update Last Updated timestamp
   const handleTriggerSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
+    const now = new Date();
     try {
-      // 1. INSTANT UPDATE (< 500ms): Read latest synced real-time dataset directly from Supabase
+      // 1. INSTANT UPDATE (< 300ms): Read latest synced real-time dataset directly from Supabase
       const { data: realtimeFiles, error: rtError } = await supabase
         .from('uploaded_files')
         .select('id, name, upload_date, record_count, data')
@@ -610,12 +605,14 @@ Dyno Dashboard Auto-Mail`
             return [{ id: item.id, name: item.name, uploadDate: new Date(item.upload_date), recordCount: item.record_count, data: parsedRows }, ...prev];
           }
         });
-
-        setLastSyncTime(new Date(item.upload_date));
       }
 
+      // Immediately update Last Updated to right now
+      setLastSyncTime(now);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('dyno_last_sync_time', now.toISOString());
+      }
       setHasPendingUpdate(false);
-      setCooldownSeconds(300);
 
       // 2. Non-blocking: background trigger to Railway to schedule next sync batch
       const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
@@ -4240,30 +4237,27 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {/* Box 2: Refresh Button (No icons, matching UI, clickable when fresh data is staged) */}
             <button
               onClick={handleTriggerSync}
-              disabled={isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)}
+              disabled={isSyncing}
               style={{
                 padding: '0.42rem 0.95rem',
                 background: isSyncing 
                   ? 'rgba(186, 84, 245, 0.2)' 
                   : hasPendingUpdate 
                     ? 'linear-gradient(135deg, #00f2c4 0%, #1d8cf8 100%)' 
-                    : (cooldownSeconds > 0)
-                      ? 'rgba(186, 84, 245, 0.12)'
-                      : 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)',
-                color: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
+                    : 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)',
+                color: isSyncing
                   ? 'rgba(255, 255, 255, 0.35)'
                   : hasPendingUpdate ? '#1d213b' : '#ffffff',
-                border: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
+                border: isSyncing
                   ? '1px solid rgba(255, 255, 255, 0.08)'
                   : hasPendingUpdate ? '1px solid rgba(0, 242, 196, 0.5)' : '1px solid rgba(186, 84, 245, 0.4)',
                 borderRadius: '8px',
                 fontSize: '0.8rem',
                 fontWeight: 600,
-                cursor: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'not-allowed' : 'pointer',
-                opacity: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 0.5 : 1,
-                filter: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'blur(0.5px)' : 'none',
-                boxShadow: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'none' : '0 2px 10px rgba(186, 84, 245, 0.3)',
-                transition: 'all 0.3s ease',
+                cursor: isSyncing ? 'not-allowed' : 'pointer',
+                opacity: isSyncing ? 0.7 : 1,
+                boxShadow: isSyncing ? 'none' : '0 2px 10px rgba(186, 84, 245, 0.3)',
+                transition: 'all 0.2s ease',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -4271,9 +4265,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 ? 'Updating...' 
                 : hasPendingUpdate 
                   ? 'New Data Ready (Refresh)' 
-                  : cooldownSeconds > 0 
-                    ? `Refresh (${Math.floor(cooldownSeconds / 60)}:${String(cooldownSeconds % 60).padStart(2, '0')})` 
-                    : 'Refresh'}
+                  : 'Refresh'}
             </button>
 
             <div className="glowing-text-avatar">
