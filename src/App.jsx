@@ -574,7 +574,7 @@ Dyno Dashboard Auto-Mail`
     return () => clearInterval(interval);
   }, []);
 
-  // On Refresh: triggers Railway sync and refreshes latest staged data from Supabase
+  // On Refresh: triggers Railway sync and immediately updates state without browser reload
   const handleTriggerSync = async () => {
     if (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) return;
     setIsSyncing(true);
@@ -582,11 +582,11 @@ Dyno Dashboard Auto-Mail`
       const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
       const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
 
-      // Trigger sync via Railway backend
+      // 1. Trigger sync via Railway backend (or client fallback)
       try {
-        await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+        const syncRes = await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+        if (!syncRes.ok) throw new Error('Backend sync failed');
       } catch (e) {
-        // If backend unreachable, attempt client sync
         if (canTriggerManualSync()) {
           try {
             await syncRealtimeSalesToSupabase({ force: true });
@@ -594,10 +594,45 @@ Dyno Dashboard Auto-Mail`
         }
       }
 
+      // 2. Fetch updated [REALTIME_SYNC] dataset directly from Supabase for instant UI update
+      const { data: realtimeFiles } = await supabase
+        .from('uploaded_files')
+        .select('id, name, upload_date, record_count, data')
+        .like('name', '[REALTIME_SYNC]%')
+        .order('upload_date', { ascending: false })
+        .limit(1);
+
+      if (realtimeFiles && realtimeFiles.length > 0) {
+        const item = realtimeFiles[0];
+        const parsedRows = (item.data || []).map(row => ({
+          parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
+          monthName: row.monthName || 'Unknown',
+          formattedDate: row.formattedDate || 'Unknown',
+          fy: row.fy || '2026',
+          priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
+          division: row.division || 'Unknown',
+          channel_name: normalizeChannelName(row.channel_name),
+          categories: row.categories || 'Unknown',
+          item_color: row.item_color || 'Unknown',
+          item_type_size: row.item_type_size || 'Unknown'
+        }));
+
+        setUploadedFiles(prev => {
+          const exists = prev.some(f => f.id === item.id);
+          if (exists) {
+            return prev.map(f => f.id === item.id ? { ...f, uploadDate: new Date(item.upload_date), recordCount: item.record_count, data: parsedRows } : f);
+          } else {
+            return [{ id: item.id, name: item.name, uploadDate: new Date(item.upload_date), recordCount: item.record_count, data: parsedRows }, ...prev];
+          }
+        });
+
+        setLastSyncTime(new Date(item.upload_date));
+      }
+
+      // 3. Also refresh all file lists
       await fetchData();
       setHasPendingUpdate(false);
       setCooldownSeconds(300);
-      setLastSyncTime(new Date());
     } catch (err) {
       alert(`Refresh failed: ${err.message}`);
     } finally {
