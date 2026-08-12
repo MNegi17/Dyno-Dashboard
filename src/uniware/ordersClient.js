@@ -3,35 +3,29 @@ import { getAccessToken, invalidateToken } from './authClient.js';
 const getBaseUrl = () => typeof window !== 'undefined' ? '/api/uniware' : 'https://purpleunited.unicommerce.com';
 
 /**
- * Search Sale Orders in Uniware within a specified time window
+ * Search Sale Orders in Uniware within a specified time window with automatic pagination
  */
 export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' }) {
   let token = await getAccessToken();
   const url = `${getBaseUrl()}/services/rest/v1/oms/saleOrder/search`;
-  const body = JSON.stringify({
-    fromDate,
-    toDate,
-    dateType,
-    searchOptions: {
-      displayStart: 0,
-      displayLength: 500
-    }
-  });
 
-  let response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body
-  });
+  let allElements = [];
+  let displayStart = 0;
+  const displayLength = 500;
+  let hasMore = true;
 
-  if (response.status === 401) {
-    invalidateToken();
-    token = await getAccessToken(true);
-    response = await fetch(url, {
+  while (hasMore) {
+    const body = JSON.stringify({
+      fromDate,
+      toDate,
+      dateType,
+      searchOptions: {
+        displayStart,
+        displayLength
+      }
+    });
+
+    let response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,20 +34,42 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
       },
       body
     });
+
+    if (response.status === 401) {
+      invalidateToken();
+      token = await getAccessToken(true);
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body
+      });
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Uniware searchSaleOrders failed (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    const elements = data.elements || [];
+    allElements.push(...elements);
+
+    if (elements.length < displayLength || allElements.length >= (data.totalRecords || 0)) {
+      hasMore = false;
+    } else {
+      displayStart += displayLength;
+    }
   }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Uniware searchSaleOrders failed (${response.status}): ${errorText}`);
-  }
-
-  const data = await response.json();
-  const elements = data.elements || [];
-  const orderCodes = elements.map(el => el.code);
+  const orderCodes = allElements.map(el => el.code);
 
   return {
     orderCodes,
-    elements
+    elements: allElements
   };
 }
 
