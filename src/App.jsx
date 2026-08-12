@@ -574,20 +574,32 @@ Dyno Dashboard Auto-Mail`
     return () => clearInterval(interval);
   }, []);
 
-  // On Refresh: fetches latest staged data from database and refreshes whole UI
+  // On Refresh: triggers Railway sync and refreshes latest staged data from Supabase
   const handleTriggerSync = async () => {
     if (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) return;
     setIsSyncing(true);
     try {
-      if (canTriggerManualSync()) {
-        await syncRealtimeSalesToSupabase({ force: true });
+      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+
+      // Trigger sync via Railway backend
+      try {
+        await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+      } catch (e) {
+        // If backend unreachable, attempt client sync
+        if (canTriggerManualSync()) {
+          try {
+            await syncRealtimeSalesToSupabase({ force: true });
+          } catch {}
+        }
       }
+
       await fetchData();
       setHasPendingUpdate(false);
       setCooldownSeconds(300);
       setLastSyncTime(new Date());
     } catch (err) {
-      alert(`Sync failed: ${err.message}`);
+      alert(`Refresh failed: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }

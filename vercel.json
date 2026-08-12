@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/uniware/:path*",
+      "destination": "https://purpleunited.unicommerce.com/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
