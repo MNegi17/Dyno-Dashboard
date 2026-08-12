@@ -531,9 +531,43 @@ def send_po_email():
         traceback.print_exc()
         return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
 
+import subprocess
+import threading
+import time
+
+def start_background_sync_worker():
+    def loop():
+        # Initial sleep of 5 seconds to let server start up
+        time.sleep(5)
+        while True:
+            try:
+                print("[Railway Sync Worker] Running 5-minute background real-time sync...")
+                res = subprocess.run(["node", "sync_worker.js", "--once"], capture_output=True, text=True)
+                print("[Railway Sync Worker Output]:\n", res.stdout)
+                if res.stderr:
+                    print("[Railway Sync Worker Error]:\n", res.stderr)
+            except Exception as e:
+                print(f"[Railway Sync Worker] Exception: {e}")
+            time.sleep(300)
+
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+
+@app.route('/api/sync', methods=['GET', 'POST'])
+def trigger_realtime_sync_route():
+    try:
+        res = subprocess.run(["node", "sync_worker.js", "--once"], capture_output=True, text=True)
+        return jsonify({"success": True, "output": res.stdout, "error": res.stderr})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# Start background sync worker on server launch
+start_background_sync_worker()
+
 if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
+
 
 

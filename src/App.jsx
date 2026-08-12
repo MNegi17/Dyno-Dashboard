@@ -7,6 +7,8 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
+import { syncRealtimeSalesToSupabase, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync } from './sync/supabaseSync.js';
+import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
 const GlowingLogoIcon = ({ size = 36, white = false }) => {
   return (
@@ -67,7 +69,7 @@ const normalizeChannelName = (rawName) => {
   if (upper === 'FIRSTCRY') {
     return 'FIRSTCRY';
   }
-  if (upper === 'D2C SHOPIFY' || upper === 'SHOPIFY') {
+  if (upper.includes('SHOPIFY') || upper.includes('D2C') || upper === 'D2C_SHOPIFY' || upper === 'D2C SHOPIFY' || upper === 'SHOPIFY' || upper === 'D2C') {
     return 'D2C';
   }
   if (upper.includes('COCOBLU_ONLINE') || upper.includes('COCOBLU_ON') || upper === 'PUSPL _COCOBLU_ON') {
@@ -531,8 +533,155 @@ Dyno Dashboard Auto-Mail`
   const [selectedGenders, setSelectedGenders] = useState([]);
   const [selectedFY, setSelectedFY] = useState('2026');
 
+  // Real-time Uniware Sync State
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [hasPendingUpdate, setHasPendingUpdate] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(() => getLastSyncTime());
+  const [cooldownSeconds, setCooldownSeconds] = useState(() => getCooldownRemainingSeconds());
+
+  // Item Directory Upload State
+  const [isUploadingDirectory, setIsUploadingDirectory] = useState(false);
+  const [directorySuccess, setDirectorySuccess] = useState(null);
+  const [directoryError, setDirectoryError] = useState(null);
+
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
+
+  // 1-second ticker for cooldown countdown & time display
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCooldownSeconds(getCooldownRemainingSeconds());
+      setLastSyncTime(getLastSyncTime());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Background auto-sync into staging layer (every 5 mins, does NOT re-render UI)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (canTriggerManualSync()) {
+        try {
+          const res = await syncRealtimeSalesToSupabase();
+          if (res && res.success) {
+            setHasPendingUpdate(true);
+            setLastSyncTime(new Date());
+          }
+        } catch (e) {
+          console.warn('Background real-time sync:', e.message);
+        }
+      }
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // On Refresh: fetches latest staged data from database and refreshes whole UI
+  const handleTriggerSync = async () => {
+    if (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) return;
+    setIsSyncing(true);
+    try {
+      if (canTriggerManualSync()) {
+        await syncRealtimeSalesToSupabase({ force: true });
+      }
+      await fetchData();
+      setHasPendingUpdate(false);
+      setCooldownSeconds(300);
+      setLastSyncTime(new Date());
+    } catch (err) {
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const getTodayInfo = () => {
+    const now = new Date();
+    const istOffsetMs = 5.5 * 60 * 60 * 1000;
+    const istNow = new Date(now.getTime() + istOffsetMs);
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const currentMonth = monthNames[istNow.getUTCMonth()];
+    const day = istNow.getUTCDate().toString().padStart(2, '0');
+    const formattedToday = `${day} ${currentMonth}`;
+
+    const currentYear = istNow.getUTCFullYear();
+    const currentMonthIdx = istNow.getUTCMonth();
+    const currentFY = String(currentMonthIdx >= 3 ? currentYear : currentYear - 1);
+    return { currentMonth, formattedToday, currentFY };
+  };
+
+  // Quick filter: toggle select/deselect today's live date
+  const handleSelectToday = () => {
+    const { currentMonth, formattedToday, currentFY } = getTodayInfo();
+    const isCurrentlyToday = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
+
+    if (isCurrentlyToday) {
+      // Toggle OFF: Reset back to All Months & All Dates
+      setSelectedMonth([]);
+      setSelectedDate('All');
+    } else {
+      // Toggle ON: Select today
+      setSelectedFY(currentFY);
+      setSelectedMonth([currentMonth]);
+      setSelectedDate(formattedToday);
+      setSelectedDivision('All');
+      setSelectedChannels([]);
+      setSelectedCategories([]);
+      setSelectedGenders([]);
+    }
+  };
+
+  const handleItemDirectoryUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsUploadingDirectory(true);
+    setDirectorySuccess(null);
+    setDirectoryError(null);
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const bstr = event.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const parsedData = XLSX.utils.sheet_to_json(ws);
+
+        let count = 0;
+        for (const row of parsedData) {
+          const sku = row['ITEM CODE'] || row['Item Code'] || row['SKU'] || row['sku'] || row['Barcode'] || row['BARCODE'];
+          const itemColor = row['ITEM COLOR'] || row['Item Color'] || row['item_color'] || row['COLOR'] || row['Color'];
+          const cat = row['CATEGORY'] || row['Category'] || row['categories'];
+          const subCat = row['SUB CATEGORY'] || row['Sub Category'] || row['sub_category'];
+          const div = row['DIVISION'] || row['Division'] || row['division'];
+          const size = row['SIZE'] || row['Size'] || row['size'];
+          const brand = row['BRAND'] || row['Brand'] || row['brand'] || 'PURPLE UNITED KIDS';
+
+          if (sku || itemColor) {
+            updateItemDirectoryEntry({
+              sku: sku ? String(sku).trim() : undefined,
+              itemColor: itemColor ? String(itemColor).trim() : undefined,
+              categories: cat ? String(cat).trim() : undefined,
+              division: div ? String(div).trim() : undefined,
+              size: size !== undefined ? size : undefined,
+              brand: brand ? String(brand).trim() : undefined
+            });
+            count++;
+          }
+        }
+
+        setDirectorySuccess(`Successfully processed ${count} item directory entries!`);
+        setIsUploadingDirectory(false);
+        e.target.value = null;
+      } catch (err) {
+        console.error('Failed to parse Item Directory file:', err);
+        setDirectoryError(`Upload failed: ${err.message}`);
+        setIsUploadingDirectory(false);
+        e.target.value = null;
+      }
+    };
+
+    reader.readAsBinaryString(file);
+  };
 
 
   useEffect(() => {
@@ -727,6 +876,15 @@ Dyno Dashboard Auto-Mail`
         data: [] // Initially empty
       }));
       setUploadedFiles(formatted);
+
+      // Set lastSyncTime from the latest [REALTIME_SYNC] file
+      const realtimeFile = formatted.find(f => (f.name || '').startsWith('[REALTIME_SYNC]'));
+      if (realtimeFile && realtimeFile.uploadDate) {
+        setLastSyncTime(realtimeFile.uploadDate);
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('dyno_last_sync_time', realtimeFile.uploadDate.toISOString());
+        }
+      }
       
       // 2. Start background download
       if (formatted.length > 0) {
@@ -4027,7 +4185,61 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             </h1>
             <p>Real-time insights from your daily reports</p>
           </div>
-          <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+            {/* Box 1: Last Updated */}
+            <div style={{
+              padding: '0.42rem 0.85rem',
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '8px',
+              color: 'var(--text-secondary, #9a9a9a)',
+              fontSize: '0.8rem',
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              letterSpacing: '0.2px'
+            }}>
+              Last updated: {lastSyncTime ? `${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '12:01 AM'}
+            </div>
+
+            {/* Box 2: Refresh Button (No icons, matching UI, clickable when fresh data is staged) */}
+            <button
+              onClick={handleTriggerSync}
+              disabled={isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)}
+              style={{
+                padding: '0.42rem 0.95rem',
+                background: isSyncing 
+                  ? 'rgba(186, 84, 245, 0.2)' 
+                  : hasPendingUpdate 
+                    ? 'linear-gradient(135deg, #00f2c4 0%, #1d8cf8 100%)' 
+                    : (cooldownSeconds > 0)
+                      ? 'rgba(186, 84, 245, 0.12)'
+                      : 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)',
+                color: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
+                  ? 'rgba(255, 255, 255, 0.35)'
+                  : hasPendingUpdate ? '#1d213b' : '#ffffff',
+                border: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
+                  ? '1px solid rgba(255, 255, 255, 0.08)'
+                  : hasPendingUpdate ? '1px solid rgba(0, 242, 196, 0.5)' : '1px solid rgba(186, 84, 245, 0.4)',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'not-allowed' : 'pointer',
+                opacity: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 0.5 : 1,
+                filter: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'blur(0.5px)' : 'none',
+                boxShadow: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'none' : '0 2px 10px rgba(186, 84, 245, 0.3)',
+                transition: 'all 0.3s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {isSyncing 
+                ? 'Updating...' 
+                : hasPendingUpdate 
+                  ? 'New Data Ready (Refresh)' 
+                  : cooldownSeconds > 0 
+                    ? `Refresh (${Math.floor(cooldownSeconds / 60)}:${String(cooldownSeconds % 60).padStart(2, '0')})` 
+                    : 'Refresh'}
+            </button>
+
             <div className="glowing-text-avatar">
               <span>
                 MN
@@ -4109,6 +4321,32 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 {liveDatesSuccess && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(76,175,80,0.1)', borderRadius: '6px', color: '#81c784', fontSize: '0.8rem' }}>
                     ✓ {liveDatesSuccess}
+                  </div>
+                )}
+              </div>
+
+              <div className="card" style={{ marginBottom: 0 }}>
+                <div className="card-header">
+                  <h3 className="card-title">Upload Item Directory</h3>
+                </div>
+                <div className="upload-btn-wrapper">
+                  <button className="upload-btn" disabled={isUploadingDirectory} style={{ background: 'linear-gradient(135deg, #1d8cf8 0%, #ba54f5 100%)' }}>
+                    <UploadCloud size={20} />
+                    {isUploadingDirectory ? 'Uploading...' : 'Upload Item Directory Excel / CSV'}
+                  </button>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleItemDirectoryUpload} disabled={isUploadingDirectory} />
+                </div>
+                <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>
+                  Upload the master item catalog containing SKUs, categories, divisions, styles, colors, sizes, and MRPs.
+                </p>
+                {directorySuccess && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(76,175,80,0.1)', borderRadius: '6px', color: '#81c784', fontSize: '0.8rem' }}>
+                    ✓ {directorySuccess}
+                  </div>
+                )}
+                {directoryError && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(244,67,54,0.1)', borderRadius: '6px', color: '#e57373', fontSize: '0.8rem' }}>
+                    ⚠ {directoryError}
                   </div>
                 )}
               </div>
@@ -5749,6 +5987,40 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {/* Global Filters */}
             {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="filters-container">
+                {activePage !== 'goals' && (() => {
+                  const { currentMonth, formattedToday, currentFY } = getTodayInfo();
+                  const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
+                  return (
+                    <button
+                      onClick={handleSelectToday}
+                      title={isTodayActive ? "Click to deselect Today filter" : "Quick filter: View today's live orders"}
+                      style={{
+                        padding: '0.62rem 1.15rem',
+                        background: isTodayActive
+                          ? 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)'
+                          : 'rgba(186, 84, 245, 0.14)',
+                        border: isTodayActive
+                          ? '1px solid rgba(186, 84, 245, 0.6)'
+                          : '1px solid rgba(186, 84, 245, 0.3)',
+                        borderRadius: '10px',
+                        color: '#ffffff',
+                        fontSize: '0.85rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        boxShadow: isTodayActive
+                          ? '0 2px 12px rgba(186, 84, 245, 0.4)'
+                          : 'none',
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem'
+                      }}
+                    >
+                      Today
+                    </button>
+                  );
+                })()}
                 {activePage !== 'goals' && (
                   <CustomSelect 
                     value={selectedFY} 
