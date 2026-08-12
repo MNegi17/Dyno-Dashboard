@@ -547,10 +547,27 @@ Dyno Dashboard Auto-Mail`
   // Guard: ensures fetchData is called at most once per session lifecycle
   const hasFetchedRef = useRef(false);
 
-  // 1-second ticker for time display
+  // 1-second ticker for 5-minute cooldown countdown & time display
   useEffect(() => {
+    const calcRemaining = () => {
+      const saved = getLastSyncTime();
+      if (!saved) return 0;
+      const elapsed = Date.now() - saved.getTime();
+      const COOLDOWN_MS = 5 * 60 * 1000;
+      if (elapsed >= COOLDOWN_MS) return 0;
+      return Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+    };
+
     const saved = getLastSyncTime();
-    if (saved) setLastSyncTime(saved);
+    if (saved) {
+      setLastSyncTime(saved);
+      setCooldownSeconds(calcRemaining());
+    }
+
+    const timer = setInterval(() => {
+      setCooldownSeconds(calcRemaining());
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // Background auto-sync into staging layer (every 5 mins, does NOT re-render UI)
@@ -612,6 +629,7 @@ Dyno Dashboard Auto-Mail`
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('dyno_last_sync_time', now.toISOString());
       }
+      setCooldownSeconds(300);
       setHasPendingUpdate(false);
 
       // 2. Non-blocking: background trigger to Railway to schedule next sync batch
@@ -4234,30 +4252,33 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               Last updated: {lastSyncTime ? `${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '12:01 AM'}
             </div>
 
-            {/* Box 2: Refresh Button (No icons, matching UI, clickable when fresh data is staged) */}
+            {/* Box 2: Refresh Button (5-min cooldown restriction matching UI) */}
             <button
               onClick={handleTriggerSync}
-              disabled={isSyncing}
+              disabled={isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)}
               style={{
                 padding: '0.42rem 0.95rem',
                 background: isSyncing 
                   ? 'rgba(186, 84, 245, 0.2)' 
                   : hasPendingUpdate 
                     ? 'linear-gradient(135deg, #00f2c4 0%, #1d8cf8 100%)' 
-                    : 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)',
-                color: isSyncing
+                    : (cooldownSeconds > 0)
+                      ? 'rgba(186, 84, 245, 0.12)'
+                      : 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)',
+                color: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
                   ? 'rgba(255, 255, 255, 0.35)'
                   : hasPendingUpdate ? '#1d213b' : '#ffffff',
-                border: isSyncing
+                border: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate))
                   ? '1px solid rgba(255, 255, 255, 0.08)'
                   : hasPendingUpdate ? '1px solid rgba(0, 242, 196, 0.5)' : '1px solid rgba(186, 84, 245, 0.4)',
                 borderRadius: '8px',
                 fontSize: '0.8rem',
                 fontWeight: 600,
-                cursor: isSyncing ? 'not-allowed' : 'pointer',
-                opacity: isSyncing ? 0.7 : 1,
-                boxShadow: isSyncing ? 'none' : '0 2px 10px rgba(186, 84, 245, 0.3)',
-                transition: 'all 0.2s ease',
+                cursor: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'not-allowed' : 'pointer',
+                opacity: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 0.5 : 1,
+                filter: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'blur(0.5px)' : 'none',
+                boxShadow: (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) ? 'none' : '0 2px 10px rgba(186, 84, 245, 0.3)',
+                transition: 'all 0.3s ease',
                 whiteSpace: 'nowrap'
               }}
             >
@@ -4265,7 +4286,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 ? 'Updating...' 
                 : hasPendingUpdate 
                   ? 'New Data Ready (Refresh)' 
-                  : 'Refresh'}
+                  : cooldownSeconds > 0 
+                    ? `Refresh (${Math.floor(cooldownSeconds / 60)}:${String(cooldownSeconds % 60).padStart(2, '0')})` 
+                    : 'Refresh'}
             </button>
 
             <div className="glowing-text-avatar">
