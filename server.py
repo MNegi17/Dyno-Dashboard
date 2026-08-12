@@ -531,9 +531,9 @@ def send_po_email():
         traceback.print_exc()
         return jsonify({"error": f"Failed to send email: {str(e)}"}), 500
 
-import subprocess
 import threading
 import time
+from sync_worker import execute_sync
 
 def start_background_sync_worker():
     def loop():
@@ -542,10 +542,8 @@ def start_background_sync_worker():
         while True:
             try:
                 print("[Railway Sync Worker] Running 5-minute background real-time sync...")
-                res = subprocess.run(["node", "sync_worker.js", "--once"], capture_output=True, text=True)
-                print("[Railway Sync Worker Output]:\n", res.stdout)
-                if res.stderr:
-                    print("[Railway Sync Worker Error]:\n", res.stderr)
+                res = execute_sync()
+                print(f"[Railway Sync Worker] Finished: {res}")
             except Exception as e:
                 print(f"[Railway Sync Worker] Exception: {e}")
             time.sleep(300)
@@ -556,8 +554,8 @@ def start_background_sync_worker():
 @app.route('/api/sync', methods=['GET', 'POST'])
 def trigger_realtime_sync_route():
     try:
-        res = subprocess.run(["node", "sync_worker.js", "--once"], capture_output=True, text=True)
-        return jsonify({"success": True, "output": res.stdout, "error": res.stderr})
+        res = execute_sync()
+        return jsonify(res)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
