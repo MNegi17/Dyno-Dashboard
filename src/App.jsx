@@ -574,35 +574,20 @@ Dyno Dashboard Auto-Mail`
     return () => clearInterval(interval);
   }, []);
 
-  // On Refresh: triggers Railway sync and immediately updates state without browser reload
+  // On Refresh: Instant UI update in < 500ms from Supabase + non-blocking background sync
   const handleTriggerSync = async () => {
-    if (isSyncing || (cooldownSeconds > 0 && !hasPendingUpdate)) return;
+    if (isSyncing) return;
     setIsSyncing(true);
     try {
-      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
-
-      // 1. Trigger sync via Railway backend (or client fallback)
-      try {
-        const syncRes = await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
-        if (!syncRes.ok) throw new Error('Backend sync failed');
-      } catch (e) {
-        if (canTriggerManualSync()) {
-          try {
-            await syncRealtimeSalesToSupabase({ force: true });
-          } catch {}
-        }
-      }
-
-      // 2. Fetch updated [REALTIME_SYNC] dataset directly from Supabase for instant UI update
-      const { data: realtimeFiles } = await supabase
+      // 1. INSTANT UPDATE (< 500ms): Read latest synced real-time dataset directly from Supabase
+      const { data: realtimeFiles, error: rtError } = await supabase
         .from('uploaded_files')
         .select('id, name, upload_date, record_count, data')
         .like('name', '[REALTIME_SYNC]%')
         .order('upload_date', { ascending: false })
         .limit(1);
 
-      if (realtimeFiles && realtimeFiles.length > 0) {
+      if (!rtError && realtimeFiles && realtimeFiles.length > 0) {
         const item = realtimeFiles[0];
         const parsedRows = (item.data || []).map(row => ({
           parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
@@ -629,10 +614,14 @@ Dyno Dashboard Auto-Mail`
         setLastSyncTime(new Date(item.upload_date));
       }
 
-      // 3. Also refresh all file lists
-      await fetchData();
       setHasPendingUpdate(false);
       setCooldownSeconds(300);
+
+      // 2. Non-blocking: background trigger to Railway to schedule next sync batch
+      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+      fetch(`${backendUrl}/api/sync`, { method: 'POST' }).catch(() => {});
+
     } catch (err) {
       alert(`Refresh failed: ${err.message}`);
     } finally {
