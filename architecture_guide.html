@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dyno Dashboard — Real-Time Architecture & Interview Master Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#13141f',
+        primaryColor: '#8965e0',
+        primaryTextColor: '#ffffff',
+        primaryBorderColor: '#ba54f5',
+        lineColor: '#00f2c4',
+        secondaryColor: '#1d213b',
+        tertiaryColor: '#27293d'
+      }
+    });
+  </script>
+  <style>
+    :root {
+      --bg-main: #0c0d14;
+      --bg-card: #161724;
+      --bg-card-hover: #1e1f32;
+      --border-color: rgba(186, 84, 245, 0.25);
+      --primary-purple: #ba54f5;
+      --secondary-purple: #8965e0;
+      --accent-cyan: #00f2c4;
+      --accent-blue: #1d8cf8;
+      --text-main: #f0f0f5;
+      --text-muted: #9a9ab0;
+      --font-sans: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      padding: 2.5rem 1.5rem;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3.5rem;
+      padding: 2.5rem;
+      background: linear-gradient(135deg, rgba(186, 84, 245, 0.12) 0%, rgba(29, 140, 248, 0.08) 100%);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    header h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #ba54f5 50%, #00f2c4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.8rem;
+    }
+
+    header p {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      max-width: 750px;
+      margin: 0 auto;
+    }
+
+    .badge-bar {
+      display: flex;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 0.35rem 0.85rem;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--accent-cyan);
+    }
+
+    .section {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2rem;
+      margin-bottom: 2.5rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    .section h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.8rem;
+    }
+
+    .diagram-box {
+      background: #11121d;
+      border: 1px solid rgba(186, 84, 245, 0.3);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.2rem;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1.3rem;
+      transition: all 0.2s ease;
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--primary-purple);
+      transform: translateY(-2px);
+    }
+
+    .card h3 {
+      font-size: 1.15rem;
+      color: var(--primary-purple);
+      margin-bottom: 0.6rem;
+    }
+
+    .formula-box {
+      background: #090a10;
+      border-left: 3px solid var(--accent-cyan);
+      padding: 0.9rem 1.2rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      color: #00f2c4;
+      margin: 0.8rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1.2rem;
+      font-size: 0.92rem;
+    }
+
+    th, td {
+      padding: 0.85rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    th {
+      background: rgba(186, 84, 245, 0.1);
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .highlight-box {
+      background: linear-gradient(135deg, rgba(186, 84, 245, 0.15) 0%, rgba(0, 242, 196, 0.08) 100%);
+      border: 1px solid rgba(186, 84, 245, 0.4);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-top: 1.2rem;
+    }
+
+    .highlight-box h3 {
+      color: #ffffff;
+      margin-bottom: 0.6rem;
+    }
+
+    .quote-box {
+      font-style: italic;
+      color: #e0e0f0;
+      border-left: 4px solid var(--primary-purple);
+      padding-left: 1.2rem;
+      margin: 1rem 0;
+      font-size: 1.05rem;
+      line-height: 1.7;
+    }
+
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .kpi-card {
+      background: rgba(0, 242, 196, 0.06);
+      border: 1px solid rgba(0, 242, 196, 0.2);
+      border-radius: 10px;
+      padding: 1.2rem;
+      text-align: center;
+    }
+
+    .kpi-number {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--accent-cyan);
+    }
+
+    .kpi-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <h1>Dyno Sales Intelligence Platform</h1>
+    <p>End-to-End System Architecture, Real-Time Data Pipeline, Dynamic Pricing Engine & Technical Interview Master Guide</p>
+    <div class="badge-bar">
+      <span class="badge">Real-Time Ingestion</span>
+      <span class="badge">Dynamic Pricing Engine</span>
+      <span class="badge">Auto-Pagination Traversal</span>
+      <span class="badge">52,900+ Master SKUs</span>
+      <span class="badge">Sub-300ms UI Rehydration</span>
+      <span class="badge">24/7 Railway Worker</span>
+    </div>
+  </header>
+
+  <!-- Section 1: System Flowchart -->
+  <div class="section">
+    <h2>📊 1. End-to-End System Architecture Flowchart</h2>
+    <p style="color: var(--text-muted);">How data flows continuously from Uniware OMS through Railway's background transformation engine into Supabase and renders on the React dashboard:</p>
+
+    <div class="diagram-box">
+      <div class="mermaid">
+flowchart TD
+    subgraph OMS["1. External E-Commerce OMS (Uniware)"]
+        UniwareAuth["OAuth 2.0 Auth Server<br/>(/oauth/token)"]
+        UniwareSearch["Order Search API<br/>(/oms/saleOrder/search)"]
+        UniwareGet["Order Item Retrieval API<br/>(/oms/saleorder/get)"]
+    end
+
+    subgraph Railway["2. 24/7 Background Pipeline (Railway Backend)"]
+        Daemon["5-Min Loop / Daemon Thread<br/>(sync_worker.py)"]
+        Token["Token Manager & Auto-Renewal"]
+        Paginate["Auto-Pagination Engine<br/>(displayStart = 0, 500, 1000...)"]
+        ThreadWorkers["ThreadPoolExecutor<br/>(8 Parallel Workers)"]
+        CatalogMaster["52,900+ Master SKU Lookup<br/>+ Prefix Deductor"]
+        PricingEngine["Dynamic Pricing Engine<br/>(Myntra Avg Discount Formula)"]
+        ChannelNorm["Channel Normalizer<br/>(D2C, Myntra, Amazon...)"]
+        MidnightRecon["Midnight Rollover & Sealed Snapshot<br/>(24-Hour Final Reconciliation)"]
+
+        Daemon --> Token --> Paginate --> ThreadWorkers --> CatalogMaster --> PricingEngine --> ChannelNorm --> MidnightRecon
+    end
+
+    subgraph Storage["3. Database & Staging Layer (Supabase PostgreSQL)"]
+        DB[("Supabase Database")]
+        History["Historical Daily Files<br/>(10 Aug, 11 Aug, 12 Aug)"]
+        LiveStaging["Live Staging Dataset<br/>([REALTIME_SYNC] 13 Aug 2026)"]
+        DB --> History
+        DB --> LiveStaging
+    end
+
+    subgraph Frontend["4. Real-Time Dashboard (React 18 + Vite on Vercel)"]
+        UIState["React Dashboard State (App.jsx)"]
+        TodayBtn["1-Click 'Today' Quick Filter"]
+        FastRefresh["Sub-300ms 'Refresh' Engine<br/>(Direct DB Read + 5-Min Cooldown)"]
+        Visuals["Analytics & Charts<br/>(Recharts, ASP, MoM, DOC)"]
+
+        UIState --> TodayBtn
+        UIState --> FastRefresh
+        UIState --> Visuals
+    end
+
+    UniwareAuth <--> Token
+    UniwareSearch <--> Paginate
+    UniwareGet <--> ThreadWorkers
+
+    MidnightRecon -->|Upsert JSONB Batches| DB
+    LiveStaging <-->|Sub-300ms Reads on Refresh| FastRefresh
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Sequence & Midnight Reconciliation -->
+  <div class="section">
+    <h2>🔄 2. Ingestion & Midnight Rollover Sequence</h2>
+    
+    <div class="diagram-box">
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Worker as Railway Worker (sync_worker.py)
+    participant Uniware as Uniware OMS API
+    participant Master as Master SKU Directory (52k SKUs)
+    participant Supabase as Supabase Database
+
+    Worker->>Uniware: POST /oauth/token (Fetch Bearer Token)
+    Uniware-->>Worker: access_token (Valid for 6 hours)
+
+    loop While hasMore (Auto-Pagination)
+        Worker->>Uniware: POST /oms/saleOrder/search (displayStart, displayLength=500)
+        Uniware-->>Worker: { elements: [500 orders], totalRecords: 767 }
+    end
+
+    Worker->>Uniware: Concurrent GET /oms/saleorder/get (8 Workers in Parallel)
+    Uniware-->>Worker: Line-Item Details (Selling Price, MRP, SKU, Size, Channel)
+
+    Worker->>Worker: Calculate Myntra Avg Discount: AvgDisc = Avg(1 - SP/MRP)
+    Worker->>Master: Lookup SKU Category, Division & Color
+    Worker->>Worker: Apply Dynamic SP to Ajio, Cocoblu & Flipkart: SP = MRP - (MRP * AvgDisc)
+    Worker->>Worker: Normalize Channel Names (e.g., D2C_SHOPIFY -> D2C)
+
+    Worker->>Supabase: PATCH /uploaded_files?name=[REALTIME_SYNC] 13 Aug 2026
+    Supabase-->>Worker: Upsert OK (797+ normalized rows)
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>🌙 Midnight Rollover Engine</h3>
+        <p>When the clock turns <strong>12:01 AM IST</strong>:</p>
+        <ol style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+          <li>The worker runs a <strong>full 24-hour retrospective query</strong> for yesterday (12:01 AM to 11:59:59 PM IST).</li>
+          <li>Captures all late-night orders and permanently <strong>locks and seals yesterday's dataset</strong> in Supabase (e.g., 896 units).</li>
+          <li>Shifts the live ingestion window to target today's date (<code>[REALTIME_SYNC] 13 Aug 2026</code>).</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h3>⚡ Sub-300ms Instant Refresh</h3>
+        <p>When the user clicks "Refresh" in the browser:</p>
+        <ol style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+          <li>Queries Supabase directly in <strong>&lt; 300ms</strong> and injects data straight into React state.</li>
+          <li>Updates the "Last updated" time box and triggers the <strong>5-minute cooldown countdown</strong> (<code>Refresh (4:59)</code>).</li>
+          <li>Dispatches a background ping to Railway non-blockingly without delaying the user.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 3: Core Engineering Logics -->
+  <div class="section">
+    <h2>⚙️ 3. Deep Dive: Core Engineering Logics</h2>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>💰 Dynamic Multi-Channel Pricing Engine</h3>
+        <p>Marketplaces like Ajio, Flipkart, and Amazon Cocoblu return wholesale transfer prices instead of consumer Selling Prices. We calculate consumer SP dynamically based on Myntra's real-time discount rate:</p>
+        <div class="formula-box">
+          MyntraDiscount_i = 1 - (SP_i / MRP_i)<br>
+          AvgMyntraDiscount = (1 / N) * Σ (MyntraDiscount_i)<br>
+          SP_Ajio/Cocoblu/Flipkart = MRP - (MRP * AvgMyntraDiscount)
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🏷️ 52,900+ Master SKU Directory & Prefix Deductor</h3>
+        <p>Performs instant in-memory catalog enrichment. If an unmapped SKU is purchased, a deterministic prefix deduction engine categorizes it instantly:</p>
+        <div class="formula-box">
+          Footwear: TGCAFS, TBCABS, SLIDES, MOULDS<br>
+          Apparel: JEANS (JN), SHIRT (SH), TSHIRT (TS), DRESS (DR)<br>
+          Accessories: CAP, SOCKS, BAG
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔄 Full Auto-Pagination Traversal</h3>
+        <p>Uniware limits search results to 500 orders per API call. We engineered an autonomous pagination traversal loop:</p>
+        <div class="formula-box">
+          while (has_more):<br>
+          &nbsp;&nbsp;fetch(displayStart, displayLength=500)<br>
+          &nbsp;&nbsp;displayStart += 500<br>
+          &nbsp;&nbsp;if fetched_count >= totalRecords: break
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🚀 Multithreaded Concurrency Pool</h3>
+        <p>Using Python's <code>concurrent.futures.ThreadPoolExecutor(max_workers=8)</code>, orders are fetched in parallel batches, reducing network round-trip time from 200s to 15s (85% reduction).</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 4: Technology Stack -->
+  <div class="section">
+    <h2>🛠️ 4. Technology Stack & Library Matrix</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Layer</th>
+          <th>Component / Library</th>
+          <th>Purpose & Engineering Rationale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Frontend</strong></td>
+          <td><code>React.js 18 + Vite</code></td>
+          <td>Component modularity, instantaneous HMR, and ultra-fast production bundle compilation.</td>
+        </tr>
+        <tr>
+          <td><strong>Charts</strong></td>
+          <td><code>Recharts</code></td>
+          <td>Declarative, performant SVG charts (Line, Bar, Area) with smooth micro-animations.</td>
+        </tr>
+        <tr>
+          <td><strong>UI Design</strong></td>
+          <td><code>Vanilla CSS + Glassmorphism</code></td>
+          <td>Custom dark-mode design system with purple/neon gradients and zero CSS framework bloat.</td>
+        </tr>
+        <tr>
+          <td><strong>Backend</strong></td>
+          <td><code>Python 3 / Flask</code></td>
+          <td>High-speed ETL execution, multithreading, and REST endpoints for reporting.</td>
+        </tr>
+        <tr>
+          <td><strong>Concurrency</strong></td>
+          <td><code>concurrent.futures</code></td>
+          <td>Native thread pool concurrency for non-blocking I/O order ingestion.</td>
+        </tr>
+        <tr>
+          <td><strong>Data Engine</strong></td>
+          <td><code>pandas & openpyxl</code></td>
+          <td>High-performance tabular transformation, Excel styling, formula evaluation, and reconciliation.</td>
+        </tr>
+        <tr>
+          <td><strong>Database</strong></td>
+          <td><code>Supabase (PostgreSQL)</code></td>
+          <td>Cloud PostgreSQL with Row Level Security (RLS), JSONB storage, and sub-300ms read latency.</td>
+        </tr>
+        <tr>
+          <td><strong>Infrastructure</strong></td>
+          <td><code>Railway & Vercel</code></td>
+          <td>Railway for 24/7 background worker execution; Vercel for global edge CDN hosting.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Section 5: Data Engineering vs Software Engineering -->
+  <div class="section">
+    <h2>🎯 5. Data Engineering vs. Software Engineering Framing</h2>
+
+    <div class="highlight-box">
+      <h3>💡 Verdict: Hybrid Full-Stack Data Engineering & Analytics Platform</h3>
+      <p>Depending on which role you are interviewing for, you can frame this project strategically:</p>
+    </div>
+
+    <div class="grid-2" style="margin-top: 1.2rem;">
+      <div class="card">
+        <h3>Option A: As a Data Engineering / Analytics Project</h3>
+        <p style="color: var(--text-muted); margin-bottom: 0.5rem;"><strong>Resume Title:</strong> <em>Real-Time E-Commerce Ingestion Pipeline & Analytics Lakehouse</em></p>
+        <ul style="padding-left: 1.2rem; color: var(--text-muted); font-size: 0.9rem;">
+          <li>Automated <strong>ETL pipeline</strong> connecting to third-party ERP REST APIs.</li>
+          <li>Micro-batch <strong>staging architecture</strong> with pagination traversal and automatic midnight snapshot reconciliation.</li>
+          <li>Custom mathematical discount transformation algorithms.</li>
+          <li>Schema normalization, deduplication, catalog enrichment, and database persistence in PostgreSQL.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>Option B: As a Software Engineering / Full-Stack Project</h3>
+        <p style="color: var(--text-muted); margin-bottom: 0.5rem;"><strong>Resume Title:</strong> <em>Full-Stack Real-Time Sales & Merchandising Intelligence Platform</em></p>
+        <ul style="padding-left: 1.2rem; color: var(--text-muted); font-size: 0.9rem;">
+          <li>End-to-end distributed system: React frontend, Python Flask backend, 24/7 background workers, and PostgreSQL database.</li>
+          <li>Sub-300ms UI rehydration, non-blocking asynchronous I/O, and custom state synchronization.</li>
+          <li>High-concurrency network thread pools, OAuth 2.0 token management, and auto-healing error handling.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 6: Master Interview Elevator Pitch -->
+  <div class="section">
+    <h2>🎤 6. Master Interview Pitch (60-Second Answer)</h2>
+
+    <div class="quote-box">
+      "I engineered an end-to-end real-time sales intelligence and merchandising platform for an omni-channel fashion brand operating across 8+ e-commerce channels (Myntra, Amazon, Flipkart, Ajio, Shopify D2C, FirstCry, and Nykaa).<br><br>
+      The platform replaces manual daily Excel reporting with an automated real-time pipeline. A 24/7 background worker connects to ERP REST APIs, performing paginated search traversal, multithreaded order retrieval, real-time Myntra dynamic pricing algorithms, and catalog enrichment across 52,000+ SKUs. Data is persisted to a Supabase PostgreSQL staging layer every 5 minutes and automatically reconciled into sealed daily snapshots at midnight.<br><br>
+      On the frontend, I developed a React dashboard that rehydrates live metrics in under 300 milliseconds without interrupting active users, featuring inventory Days-of-Cover (DOC) alerting, target tracking, and multi-dimensional sales filtering."
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-number">100%</div>
+        <div class="kpi-label">Automated Ingestion (0 Manual Excel Work)</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-number">&lt; 300ms</div>
+        <div class="kpi-label">Instant UI Refresh & Rehydration</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-number">85%</div>
+        <div class="kpi-label">Latency Reduction via Thread Pool</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-number">52,900+</div>
+        <div class="kpi-label">Master SKUs Enriched in Real-Time</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
