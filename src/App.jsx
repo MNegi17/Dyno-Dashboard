@@ -1,5 +1,5 @@
 // Dyno Dashboard v1.1 - with MN branding
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -10,7 +10,7 @@ import { supabase } from './supabaseClient';
 import { syncRealtimeSalesToSupabase, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName } from './sync/supabaseSync.js';
 import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
-const GlowingLogoIcon = ({ size = 36, white = false }) => {
+const GlowingLogoIcon = memo(({ size = 36, white = false }) => {
   return (
     <div 
       className={`glowing-logo-init ${white ? 'white-logo' : ''}`}
@@ -39,7 +39,7 @@ const GlowingLogoIcon = ({ size = 36, white = false }) => {
       />
     </div>
   );
-};
+});
 
 const COLORS = ['#ba54f5', '#1d8cf8', '#00f2c4', '#ff8d72', '#fd5d93', '#8965e0'];
 const GOALS = {
@@ -128,7 +128,7 @@ const formatLUDate = (date) => {
   return `${day}/${month}/${year}`;
 };
 
-const CustomSelect = ({ value, options, onChange, placeholder }) => {
+const CustomSelect = memo(({ value, options, onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -173,9 +173,9 @@ const CustomSelect = ({ value, options, onChange, placeholder }) => {
       )}
     </div>
   );
-};
+});
 
-const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder }) => {
+const CustomMultiSelect = memo(({ values = [], options = [], onChange, placeholder }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -259,7 +259,7 @@ const CustomMultiSelect = ({ values = [], options = [], onChange, placeholder })
       )}
     </div>
   );
-};
+});
 
 const correctParsedDate = (dateObj, fy) => {
   if (!dateObj || isNaN(dateObj.getTime())) return dateObj;
@@ -6141,21 +6141,51 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         ) : (
           <div className="dashboard-content">
             
-            {(activePage === 'dashboard' || activePage === 'trends') && (
+            {/* Top Insight & Quick Action Controls */}
+            {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="insight-toggle-container">
                 <div className="toggle-group">
-                  <button 
-                    className={`toggle-btn ${insightType === 'revenue' ? 'active' : ''}`}
-                    onClick={() => setInsightType('revenue')}
-                  >
-                    Revenue Insights
-                  </button>
-                  <button 
-                    className={`toggle-btn ${insightType === 'units' ? 'active' : ''}`}
-                    onClick={() => setInsightType('units')}
-                  >
-                    Unit Insights
-                  </button>
+                  {activePage !== 'goals' && (() => {
+                    const { currentMonth, formattedToday, currentFY } = getTodayInfo();
+                    const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
+                    return (
+                      <button
+                        type="button"
+                        id="today-quick-filter-btn"
+                        className={`today-btn ${isTodayActive ? 'active' : ''}`}
+                        onClick={handleSelectToday}
+                        title={isTodayActive ? "Click to reset and Show All data" : "Quick Filter: Jump to today's live orders"}
+                      >
+                        <span>Today</span>
+                        {isTodayActive && (
+                          <span className="today-show-all-badge">
+                            <span className="today-dot-sep">•</span>
+                            <span>Show All</span>
+                            <span className="today-close-icon">✕</span>
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })()}
+
+                  {(activePage === 'dashboard' || activePage === 'trends') && (
+                    <>
+                      <button 
+                        type="button"
+                        className={`toggle-btn ${insightType === 'revenue' ? 'active' : ''}`}
+                        onClick={() => setInsightType('revenue')}
+                      >
+                        Revenue Insights
+                      </button>
+                      <button 
+                        type="button"
+                        className={`toggle-btn ${insightType === 'units' ? 'active' : ''}`}
+                        onClick={() => setInsightType('units')}
+                      >
+                        Unit Insights
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -6163,40 +6193,6 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {/* Global Filters */}
             {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="filters-container">
-                {activePage !== 'goals' && (() => {
-                  const { currentMonth, formattedToday, currentFY } = getTodayInfo();
-                  const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
-                  return (
-                    <button
-                      onClick={handleSelectToday}
-                      title={isTodayActive ? "Click to deselect Today filter" : "Quick filter: View today's live orders"}
-                      style={{
-                        padding: '0.62rem 1.15rem',
-                        background: isTodayActive
-                          ? 'linear-gradient(135deg, #ba54f5 0%, #8965e0 100%)'
-                          : 'rgba(186, 84, 245, 0.14)',
-                        border: isTodayActive
-                          ? '1px solid rgba(186, 84, 245, 0.6)'
-                          : '1px solid rgba(186, 84, 245, 0.3)',
-                        borderRadius: '10px',
-                        color: '#ffffff',
-                        fontSize: '0.85rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        boxShadow: isTodayActive
-                          ? '0 2px 12px rgba(186, 84, 245, 0.4)'
-                          : 'none',
-                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                        whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.35rem'
-                      }}
-                    >
-                      Today
-                    </button>
-                  );
-                })()}
                 {activePage !== 'goals' && (
                   <CustomSelect 
                     value={selectedFY} 
