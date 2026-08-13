@@ -6144,7 +6144,11 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {/* Top Insight & Quick Action Controls */}
             {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="insight-toggle-container">
-                <div className="toggle-group">
+                {/* Left spacer for centered balance */}
+                <div className="toggle-left-spacer" />
+
+                {/* Center Hero: Today Quick Filter */}
+                <div className="today-center-wrapper">
                   {activePage !== 'goals' && (() => {
                     const { currentMonth, formattedToday, currentFY } = getTodayInfo();
                     const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
@@ -6167,9 +6171,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       </button>
                     );
                   })()}
+                </div>
 
+                {/* Right Toggles: Revenue & Unit Insights */}
+                <div className="toggle-right-wrapper">
                   {(activePage === 'dashboard' || activePage === 'trends') && (
-                    <>
+                    <div className="toggle-group">
                       <button 
                         type="button"
                         className={`toggle-btn ${insightType === 'revenue' ? 'active' : ''}`}
@@ -6184,7 +6191,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       >
                         Unit Insights
                       </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>

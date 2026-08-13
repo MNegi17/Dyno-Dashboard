@@ -593,7 +593,31 @@ input:focus {
   }
 
   .insight-toggle-container {
-    justify-content: stretch;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .toggle-left-spacer {
+    display: none;
+  }
+
+  .today-center-wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+
+  .today-btn {
+    width: 100%;
+    text-align: center;
+    justify-content: center;
+    padding: 0.6rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  .toggle-right-wrapper {
+    width: 100%;
   }
 
   .toggle-group {
@@ -601,11 +625,9 @@ input:focus {
     display: flex;
   }
 
-  .toggle-btn,
-  .today-btn {
+  .toggle-btn {
     flex: 1;
     text-align: center;
-    justify-content: center;
     padding: 0.5rem 0.5rem;
     font-size: 0.85rem;
   }
@@ -737,11 +759,31 @@ tr:hover td {
   background: rgba(255, 255, 255, 0.02);
 }
 
-/* Toggles mimicking the button selector in the reference image (Accounts, Purchases, Sessions) */
+/* Toggles and Center Hero Container */
 .insight-toggle-container {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 1.5rem;
+  gap: 1rem;
+  position: relative;
+}
+
+.toggle-left-spacer {
+  flex: 1;
+  display: flex;
+}
+
+.today-center-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.toggle-right-wrapper {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .toggle-group {
@@ -778,35 +820,35 @@ tr:hover td {
   box-shadow: 0 4px 15px rgba(225, 78, 202, 0.35);
 }
 
-/* Today Quick Filter Button - Elegant Minimal Green Style */
+/* Today Quick Filter Button - Prominent Center Attraction (Extra Large Hero) */
 .today-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
-  padding: 0.45rem 1.25rem;
-  background: rgba(0, 242, 196, 0.08);
+  gap: 0.65rem;
+  padding: 0.82rem 2.35rem;
+  background: rgba(0, 242, 196, 0.1);
   color: #00f2c4;
-  border: 1px solid rgba(0, 242, 196, 0.35);
-  border-radius: 20px;
+  border: 2px solid rgba(0, 242, 196, 0.55);
+  border-radius: 30px;
   font-family: var(--font-family);
-  font-size: 0.82rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   cursor: pointer;
   outline: none;
   white-space: nowrap;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 4px rgba(0, 242, 196, 0.08);
+  box-shadow: 0 4px 18px rgba(0, 242, 196, 0.16);
 }
 
 .today-btn:hover {
-  background: rgba(0, 242, 196, 0.16);
+  background: rgba(0, 242, 196, 0.2);
   border-color: #00f2c4;
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(0, 242, 196, 0.2);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(0, 242, 196, 0.32);
+  transform: translateY(-2px) scale(1.02);
 }
 
 .today-btn:active {
@@ -817,30 +859,30 @@ tr:hover td {
   background: linear-gradient(135deg, #00f2c4 0%, #00b894 100%);
   color: #06281e;
   border-color: transparent;
-  font-weight: 700;
-  box-shadow: 0 2px 10px rgba(0, 242, 196, 0.3);
-  padding: 0.45rem 1.15rem;
+  font-weight: 800;
+  box-shadow: 0 4px 20px rgba(0, 242, 196, 0.4);
+  padding: 0.82rem 2.15rem;
 }
 
 .today-btn.active:hover {
   background: linear-gradient(135deg, #2bf8d1 0%, #00c7a0 100%);
-  box-shadow: 0 3px 12px rgba(0, 242, 196, 0.35);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 26px rgba(0, 242, 196, 0.5);
+  transform: translateY(-2px) scale(1.02);
 }
 
 /* Expanded "Show All" badge inside active state */
 .today-show-all-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 600;
+  gap: 0.55rem;
+  font-size: 0.98rem;
+  font-weight: 700;
   color: #06281e;
   animation: today-expand-in 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .today-dot-sep {
-  opacity: 0.45;
+  opacity: 0.5;
   font-weight: bold;
 }
 
@@ -848,17 +890,17 @@ tr:hover td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: rgba(6, 40, 30, 0.18);
-  font-size: 0.62rem;
+  background: rgba(6, 40, 30, 0.2);
+  font-size: 0.74rem;
   line-height: 1;
   transition: all 0.15s ease;
 }
 
 .today-btn.active:hover .today-close-icon {
-  background: rgba(6, 40, 30, 0.32);
+  background: rgba(6, 40, 30, 0.35);
   transform: scale(1.1);
 }
 
