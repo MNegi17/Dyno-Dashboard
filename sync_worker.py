@@ -327,11 +327,85 @@ def transform_all_orders(orders):
 
     return rows
 
+def get_yesterday_window_ist():
+    now = datetime.now(timezone.utc)
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_now = now + ist_offset
+    ist_yesterday = ist_now - timedelta(days=1)
+
+    start_utc = datetime(ist_yesterday.year, ist_yesterday.month, ist_yesterday.day, 0, 1, 0, tzinfo=timezone.utc) - ist_offset
+    end_utc = datetime(ist_yesterday.year, ist_yesterday.month, ist_yesterday.day, 23, 59, 59, tzinfo=timezone.utc) - ist_offset
+
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    file_name = f"[REALTIME_SYNC] {ist_yesterday.day:02d} {months[ist_yesterday.month - 1]} {ist_yesterday.year}"
+
+    return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), file_name
+
+def reconcile_yesterday_if_needed(admin_token):
+    from_date, to_date, file_name = get_yesterday_window_ist()
+
+    get_req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/uploaded_files?name=eq.{urllib.parse.quote(file_name)}&select=id,record_count,upload_date",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
+    )
+    try:
+        with urllib.request.urlopen(get_req, timeout=30) as resp:
+            existing = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        print(f"[Yesterday Reconcile] Error checking existing: {e}")
+        return
+
+    should_reconcile = False
+    if not existing:
+        should_reconcile = True
+    elif existing[0].get("record_count", 0) < 600:
+        should_reconcile = True
+
+    if should_reconcile:
+        print(f"[Yesterday Reconcile] Running 24-hour reconciliation for {file_name} ({from_date} to {to_date})...")
+        order_codes = search_all_uniware_orders(from_date, to_date)
+        if order_codes:
+            orders = fetch_orders_concurrently(order_codes, max_workers=8)
+            rows = transform_all_orders(orders)
+            new_file_entry = {
+                "name": file_name,
+                "upload_date": datetime.now(timezone.utc).isoformat(),
+                "record_count": len(rows),
+                "data": rows
+            }
+            if existing:
+                file_id = existing[0]["id"]
+                update_req = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
+                    data=json.dumps(new_file_entry).encode('utf-8'),
+                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                    method="PATCH"
+                )
+                with urllib.request.urlopen(update_req, timeout=30) as resp:
+                    print(f"[Yesterday Reconcile] Updated {file_name} with {len(rows)} rows!")
+            else:
+                insert_req = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/uploaded_files",
+                    data=json.dumps([new_file_entry]).encode('utf-8'),
+                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(insert_req, timeout=30) as resp:
+                    print(f"[Yesterday Reconcile] Created {file_name} with {len(rows)} rows!")
+
 def execute_sync():
     timestamp = datetime.now(timezone.utc).isoformat()
     print(f"\n[{timestamp}] [Python Sync] Starting sync...")
-    
+
     admin_token = get_supabase_admin_token()
+
+    # 1. First, reconcile yesterday to ensure full 24-hour finalization
+    try:
+        reconcile_yesterday_if_needed(admin_token)
+    except Exception as e:
+        print(f"[Yesterday Reconcile] Exception: {e}")
+
+    # 2. Ingest today's live orders from 12:01 AM IST to present
     from_date = get_today_start_ist()
     file_name = get_today_realtime_file_name()
     now_dt = datetime.now(timezone.utc) - timedelta(minutes=1)
