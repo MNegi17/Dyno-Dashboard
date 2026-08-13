@@ -3,7 +3,7 @@ import { getAccessToken, invalidateToken } from './authClient.js';
 const getBaseUrl = () => typeof window !== 'undefined' ? '/api/uniware' : 'https://purpleunited.unicommerce.com';
 
 /**
- * Search Sale Orders in Uniware within a specified time window with automatic pagination
+ * Search Sale Orders in Uniware within a specified time window with automatic pagination and retry
  */
 export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' }) {
   let token = await getAccessToken();
@@ -25,43 +25,61 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
       }
     });
 
-    let response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body
-    });
+    let success = false;
+    let attempts = 0;
 
-    if (response.status === 401) {
-      invalidateToken();
-      token = await getAccessToken(true);
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body
-      });
-    }
+    while (!success && attempts < 3) {
+      attempts++;
+      try {
+        let response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body
+        });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Uniware searchSaleOrders failed (${response.status}): ${errorText}`);
-    }
+        if (response.status === 401) {
+          invalidateToken();
+          token = await getAccessToken(true);
+          response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body
+          });
+        }
 
-    const data = await response.json();
-    const elements = data.elements || [];
-    allElements.push(...elements);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Uniware searchSaleOrders HTTP ${response.status}: ${errorText}`);
+        }
 
-    if (elements.length < displayLength || allElements.length >= (data.totalRecords || 0)) {
-      hasMore = false;
-    } else {
-      displayStart += displayLength;
+        const data = await response.json();
+        const elements = data.elements || [];
+        allElements.push(...elements);
+
+        if (elements.length < displayLength || allElements.length >= (data.totalRecords || 0)) {
+          hasMore = false;
+        } else {
+          displayStart += displayLength;
+        }
+        success = true;
+      } catch (err) {
+        if (attempts >= 3) {
+          console.error(`[Uniware Search] Failed page at ${displayStart} after 3 attempts:`, err.message);
+          hasMore = false;
+        } else {
+          invalidateToken();
+          token = await getAccessToken(true);
+          await new Promise(r => setTimeout(r, 600 * attempts));
+        }
+      }
     }
   }
 
@@ -74,54 +92,65 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
 }
 
 /**
- * Fetch full details for a single Sale Order by code
+ * Fetch full details for a single Sale Order by code with automatic retry
  */
-export async function getSaleOrder(code) {
-  let token = await getAccessToken();
-  const url = `${getBaseUrl()}/services/rest/v1/oms/saleorder/get`;
-  const body = JSON.stringify({ code: String(code).trim() });
+export async function getSaleOrder(code, retryCount = 2) {
+  let attempts = 0;
+  while (attempts <= retryCount) {
+    attempts++;
+    try {
+      let token = await getAccessToken();
+      const url = `${getBaseUrl()}/services/rest/v1/oms/saleorder/get`;
+      const body = JSON.stringify({ code: String(code).trim() });
 
-  let response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body
-  });
+      let response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body
+      });
 
-  if (response.status === 401) {
-    invalidateToken();
-    token = await getAccessToken(true);
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body
-    });
+      if (response.status === 401) {
+        invalidateToken();
+        token = await getAccessToken(true);
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body
+        });
+      }
+
+      if (!response.ok) {
+        throw new Error(`Uniware getSaleOrder HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data.successful || !data.saleOrderDTO) {
+        throw new Error(`Uniware getSaleOrder unsuccessful: ${data.message || 'No saleOrderDTO'}`);
+      }
+
+      return data.saleOrderDTO;
+    } catch (err) {
+      if (attempts > retryCount) {
+        throw err;
+      }
+      invalidateToken();
+      await new Promise(r => setTimeout(r, 400 * attempts));
+    }
   }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Uniware getSaleOrder failed for ${code} (${response.status}): ${errorText}`);
-  }
-
-  const data = await response.json();
-  if (!data.successful || !data.saleOrderDTO) {
-    throw new Error(`Uniware getSaleOrder unsuccessful for ${code}: ${data.message || 'No saleOrderDTO'}`);
-  }
-
-  return data.saleOrderDTO;
 }
 
 /**
- * Fetch multiple Sale Orders with controlled concurrency (e.g. 5 parallel requests)
+ * Fetch multiple Sale Orders with controlled concurrency and resilient retry
  */
-export async function fetchSaleOrdersWithConcurrency(orderCodes, concurrency = 5) {
+export async function fetchSaleOrdersWithConcurrency(orderCodes, concurrency = 6) {
   const results = [];
   const failures = [];
   const queue = [...orderCodes];
@@ -132,7 +161,7 @@ export async function fetchSaleOrdersWithConcurrency(orderCodes, concurrency = 5
       if (!code) break;
 
       try {
-        const order = await getSaleOrder(code);
+        const order = await getSaleOrder(code, 2);
         results.push(order);
       } catch (err) {
         console.error(`Failed to fetch order ${code}:`, err.message);

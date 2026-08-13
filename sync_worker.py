@@ -24,9 +24,9 @@ UNIWARE_PASS = "Toothless@2024"
 # Global token cache
 _token_cache = {"token": None, "expires_at": 0}
 
-def get_uniware_token():
+def get_uniware_token(force_refresh=False):
     now = time.time()
-    if _token_cache["token"] and now < _token_cache["expires_at"] - 60:
+    if not force_refresh and _token_cache["token"] and now < _token_cache["expires_at"] - 60:
         return _token_cache["token"]
 
     url = f"{UNIWARE_URL}/oauth/token?grant_type=password&client_id=my-trusted-client&username={urllib.parse.quote(UNIWARE_USER)}&password={urllib.parse.quote(UNIWARE_PASS)}"
@@ -107,45 +107,58 @@ def search_all_uniware_orders(from_date, to_date):
             }
         }).encode('utf-8')
 
-        req = urllib.request.Request(url, data=payload, headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}"
-        })
+        success = False
+        attempts = 0
+        while not success and attempts < 3:
+            attempts += 1
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}"
+            })
 
-        try:
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                data = json.loads(resp.read().decode('utf-8'))
-                elements = data.get("elements", [])
-                total_records = data.get("totalRecords", 0)
-                all_codes.extend([el["code"] for el in elements if "code" in el])
+            try:
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    elements = data.get("elements", [])
+                    total_records = data.get("totalRecords", 0)
+                    all_codes.extend([el["code"] for el in elements if "code" in el])
 
-                if len(elements) < display_length or len(all_codes) >= total_records:
+                    if len(elements) < display_length or len(all_codes) >= total_records:
+                        has_more = False
+                    else:
+                        display_start += display_length
+                    success = True
+            except Exception as e:
+                print(f"[Python Sync Worker] Search attempt {attempts} failed at {display_start}: {e}")
+                if attempts >= 3:
                     has_more = False
                 else:
-                    display_start += display_length
-        except Exception as e:
-            print(f"[Python Sync Worker] Error fetching page at {display_start}: {e}")
-            break
+                    token = get_uniware_token(force_refresh=True)
+                    time.sleep(1.0 * attempts)
 
     return all_codes
 
-def fetch_single_order(code):
-    token = get_uniware_token()
-    url = f"{UNIWARE_URL}/services/rest/v1/oms/saleorder/get"
-    payload = json.dumps({"code": str(code).strip()}).encode('utf-8')
-    req = urllib.request.Request(url, data=payload, headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}"
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-            if data.get("successful") and "saleOrderDTO" in data:
-                return data["saleOrderDTO"]
-    except Exception:
-        pass
+def fetch_single_order(code, max_retries=2):
+    attempts = 0
+    while attempts <= max_retries:
+        attempts += 1
+        try:
+            token = get_uniware_token()
+            url = f"{UNIWARE_URL}/services/rest/v1/oms/saleorder/get"
+            payload = json.dumps({"code": str(code).strip()}).encode('utf-8')
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}"
+            })
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if data.get("successful") and "saleOrderDTO" in data:
+                    return data["saleOrderDTO"]
+        except Exception:
+            if attempts <= max_retries:
+                time.sleep(0.3 * attempts)
     return None
 
 def fetch_orders_concurrently(order_codes, max_workers=8):

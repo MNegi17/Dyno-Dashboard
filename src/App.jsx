@@ -1033,6 +1033,34 @@ Dyno Dashboard Auto-Mail`
           localStorage.setItem('dyno_last_sync_time', realtimeFile.uploadDate.toISOString());
         }
       }
+
+      // Check if today's realtime file is missing or older than 10 minutes, trigger background sync
+      const now = new Date();
+      const needsBackgroundSync = !realtimeFile || !realtimeFile.uploadDate || ((now.getTime() - new Date(realtimeFile.uploadDate).getTime()) > 10 * 60 * 1000);
+      if (needsBackgroundSync) {
+        setTimeout(async () => {
+          try {
+            const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+            let synced = false;
+            try {
+              const resp = await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+              if (resp.ok) {
+                const res = await resp.json();
+                if (res && res.success) synced = true;
+              }
+            } catch {
+              // ignore
+            }
+            if (!synced) {
+              await syncRealtimeSalesToSupabase({ force: true });
+            }
+            setHasPendingUpdate(true);
+          } catch (e) {
+            console.warn('Initial mount auto-sync:', e.message);
+          }
+        }, 1500);
+      }
       
       // 2. Start background download
       if (formatted.length > 0) {
