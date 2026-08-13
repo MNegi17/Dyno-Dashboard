@@ -342,56 +342,87 @@ def get_yesterday_window_ist():
     return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), file_name
 
 def reconcile_yesterday_if_needed(admin_token):
+    now = datetime.now(timezone.utc)
+    ist_offset = timedelta(hours=5, minutes=30)
+    ist_now = now + ist_offset
+    ist_yesterday = ist_now - timedelta(days=1)
+
     from_date, to_date, file_name = get_yesterday_window_ist()
 
+    # Query latest uploaded_files metadata to check for manual files or existing realtime sync
     get_req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/uploaded_files?name=eq.{urllib.parse.quote(file_name)}&select=id,record_count,upload_date",
+        f"{SUPABASE_URL}/rest/v1/uploaded_files?select=id,name,record_count,upload_date&order=upload_date.desc&limit=100",
         headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
     )
     try:
         with urllib.request.urlopen(get_req, timeout=30) as resp:
-            existing = json.loads(resp.read().decode('utf-8'))
+            all_files = json.loads(resp.read().decode('utf-8'))
     except Exception as e:
-        print(f"[Yesterday Reconcile] Error checking existing: {e}")
+        print(f"[Yesterday Reconcile] Error checking files: {e}")
         return
 
-    should_reconcile = False
-    if not existing:
-        should_reconcile = True
-    elif existing[0].get("record_count", 0) < 600:
-        should_reconcile = True
+    # Check if a manual file exists for yesterday
+    month_names_long = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    month_names_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    y_day_str = f"{ist_yesterday.day:02d}"
+    y_day_str_single = f"{ist_yesterday.day}"
+    y_month_long = month_names_long[ist_yesterday.month - 1].lower()
+    y_month_short = month_names_short[ist_yesterday.month - 1].lower()
 
-    if should_reconcile:
-        print(f"[Yesterday Reconcile] Running 24-hour reconciliation for {file_name} ({from_date} to {to_date})...")
-        order_codes = search_all_uniware_orders(from_date, to_date)
-        if order_codes:
-            orders = fetch_orders_concurrently(order_codes, max_workers=8)
-            rows = transform_all_orders(orders)
-            new_file_entry = {
-                "name": file_name,
-                "upload_date": datetime.now(timezone.utc).isoformat(),
-                "record_count": len(rows),
-                "data": rows
-            }
-            if existing:
-                file_id = existing[0]["id"]
-                update_req = urllib.request.Request(
-                    f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
-                    data=json.dumps(new_file_entry).encode('utf-8'),
-                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                    method="PATCH"
-                )
-                with urllib.request.urlopen(update_req, timeout=30) as resp:
-                    print(f"[Yesterday Reconcile] Updated {file_name} with {len(rows)} rows!")
-            else:
-                insert_req = urllib.request.Request(
-                    f"{SUPABASE_URL}/rest/v1/uploaded_files",
-                    data=json.dumps([new_file_entry]).encode('utf-8'),
-                    headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                    method="POST"
-                )
-                with urllib.request.urlopen(insert_req, timeout=30) as resp:
-                    print(f"[Yesterday Reconcile] Created {file_name} with {len(rows)} rows!")
+    for f in all_files:
+        fname = f.get("name", "")
+        # Ignore realtime sync, inventory, launch dates, and return files when checking for manual sale orders
+        if (fname.startswith("[REALTIME_SYNC]") or fname.startswith("[INVENTORY]") or 
+            fname.startswith("[LAUNCH_DATES]") or fname.startswith("[RETURN]") or "FY25" in fname):
+            continue
+        
+        fname_lower = fname.lower()
+        # Check if file matches yesterday (e.g. '12-august', '12_august', '12 august', '12-aug', or '(10-12)-august')
+        if (y_month_long in fname_lower or y_month_short in fname_lower) and (
+            y_day_str in fname_lower or f"{y_day_str_single}-" in fname_lower or f"-{y_day_str_single}" in fname_lower or f"{y_day_str_single}_" in fname_lower
+        ):
+            print(f"[Yesterday Reconcile] Manual file found covering yesterday: '{fname}' ({f.get('record_count', 0)} rows). Skipping automated reconciliation.")
+            return
+
+    # If no manual file exists, check if [REALTIME_SYNC] <yesterday> exists
+    existing_realtime = [f for f in all_files if f.get("name") == file_name]
+    
+    if existing_realtime and existing_realtime[0].get("record_count", 0) >= 600:
+        # Already fully sealed yesterday dataset
+        return
+
+    # If [REALTIME_SYNC] <yesterday> exists with partial records, or is missing and no manual file exists
+    # Reconcile from Uniware
+    print(f"[Yesterday Reconcile] Running 24-hour reconciliation for {file_name} ({from_date} to {to_date})...")
+    order_codes = search_all_uniware_orders(from_date, to_date)
+    if order_codes:
+        orders = fetch_orders_concurrently(order_codes, max_workers=8)
+        rows = transform_all_orders(orders)
+        new_file_entry = {
+            "name": file_name,
+            "upload_date": datetime.now(timezone.utc).isoformat(),
+            "record_count": len(rows),
+            "data": rows
+        }
+        if existing_realtime:
+            file_id = existing_realtime[0]["id"]
+            update_req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
+                data=json.dumps(new_file_entry).encode('utf-8'),
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                method="PATCH"
+            )
+            with urllib.request.urlopen(update_req, timeout=30) as resp:
+                print(f"[Yesterday Reconcile] Updated {file_name} with {len(rows)} rows!")
+        else:
+            insert_req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/uploaded_files",
+                data=json.dumps([new_file_entry]).encode('utf-8'),
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(insert_req, timeout=30) as resp:
+                print(f"[Yesterday Reconcile] Created {file_name} with {len(rows)} rows!")
 
 def execute_sync():
     timestamp = datetime.now(timezone.utc).isoformat()

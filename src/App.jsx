@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { syncRealtimeSalesToSupabase, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync } from './sync/supabaseSync.js';
+import { syncRealtimeSalesToSupabase, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName } from './sync/supabaseSync.js';
 import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
 const GlowingLogoIcon = ({ size = 36, white = false }) => {
@@ -570,34 +570,57 @@ Dyno Dashboard Auto-Mail`
     return () => clearInterval(timer);
   }, []);
 
-  // Background auto-sync into staging layer (every 5 mins, does NOT re-render UI)
+  // Background auto-sync into staging layer (every 5 mins, does NOT disrupt UI)
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
         const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
-        await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+        let synced = false;
+        try {
+          const resp = await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
+          if (resp.ok) {
+            const res = await resp.json();
+            if (res && res.success) synced = true;
+          }
+        } catch {
+          // ignore
+        }
+        if (!synced) {
+          await syncRealtimeSalesToSupabase({ force: true });
+        }
         setHasPendingUpdate(true);
       } catch (e) {
-        console.warn('Background auto-sync ping:', e.message);
+        console.warn('Background auto-sync:', e.message);
       }
     }, 5 * 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // On Refresh: Instant UI update in < 300ms from Supabase + immediately update Last Updated timestamp
+  // On Refresh: Instant UI update in < 300ms from Supabase + guaranteed live Uniware sync with client fallback
   const handleTriggerSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     const now = new Date();
     try {
-      // 1. INSTANT UPDATE (< 300ms): Read latest synced real-time dataset directly from Supabase
-      const { data: realtimeFiles, error: rtError } = await supabase
+      const todayFileName = getTodayRealtimeFileName();
+
+      // 1. FAST OPTIMISTIC READ (< 300ms): Read latest saved real-time dataset directly from Supabase for today
+      let { data: realtimeFiles, error: rtError } = await supabase
         .from('uploaded_files')
         .select('id, name, upload_date, record_count, data')
-        .like('name', '[REALTIME_SYNC]%')
-        .order('upload_date', { ascending: false })
-        .limit(1);
+        .eq('name', todayFileName);
+
+      // Fallback if not found by exact name: grab newest [REALTIME_SYNC]
+      if ((!realtimeFiles || realtimeFiles.length === 0) && !rtError) {
+        const fallbackRes = await supabase
+          .from('uploaded_files')
+          .select('id, name, upload_date, record_count, data')
+          .like('name', '[REALTIME_SYNC]%')
+          .order('upload_date', { ascending: false })
+          .limit(1);
+        realtimeFiles = fallbackRes.data;
+      }
 
       if (!rtError && realtimeFiles && realtimeFiles.length > 0) {
         const item = realtimeFiles[0];
@@ -624,21 +647,94 @@ Dyno Dashboard Auto-Mail`
         });
       }
 
+      // 2. LIVE UNIWARE SYNC: Fetch absolute latest orders
+      let syncedSuccessfully = false;
+      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const resp = await fetch(`${backendUrl}/api/sync`, { method: 'POST', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.success) {
+            syncedSuccessfully = true;
+            const { data: updatedFiles } = await supabase
+              .from('uploaded_files')
+              .select('id, name, upload_date, record_count, data')
+              .eq('name', todayFileName);
+            if (updatedFiles && updatedFiles.length > 0) {
+              const item = updatedFiles[0];
+              const parsedRows = (item.data || []).map(row => ({
+                parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
+                monthName: row.monthName || 'Unknown',
+                formattedDate: row.formattedDate || 'Unknown',
+                fy: row.fy || '2026',
+                priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
+                division: row.division || 'Unknown',
+                channel_name: normalizeChannelName(row.channel_name),
+                categories: row.categories || 'Unknown',
+                item_color: row.item_color || 'Unknown',
+                item_type_size: row.item_type_size || 'Unknown'
+              }));
+
+              setUploadedFiles(prev => {
+                const exists = prev.some(f => f.id === item.id);
+                if (exists) {
+                  return prev.map(f => f.id === item.id ? { ...f, uploadDate: new Date(item.upload_date), recordCount: item.record_count, data: parsedRows } : f);
+                } else {
+                  return [{ id: item.id, name: item.name, uploadDate: new Date(item.upload_date), recordCount: item.record_count, data: parsedRows }, ...prev];
+                }
+              });
+            }
+          }
+        }
+      } catch (beErr) {
+        console.warn('Backend sync unavailable, using direct client sync:', beErr.message);
+      }
+
+      // If backend was not available (404/network error/timeout), run direct client sync fallback
+      if (!syncedSuccessfully) {
+        const clientSyncRes = await syncRealtimeSalesToSupabase({ force: true });
+        if (clientSyncRes && clientSyncRes.rows) {
+          const parsedRows = clientSyncRes.rows.map(row => ({
+            parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
+            monthName: row.monthName || 'Unknown',
+            formattedDate: row.formattedDate || 'Unknown',
+            fy: row.fy || '2026',
+            priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
+            division: row.division || 'Unknown',
+            channel_name: normalizeChannelName(row.channel_name),
+            categories: row.categories || 'Unknown',
+            item_color: row.item_color || 'Unknown',
+            item_type_size: row.item_type_size || 'Unknown'
+          }));
+
+          setUploadedFiles(prev => {
+            const exists = prev.some(f => f.name === todayFileName);
+            if (exists) {
+              return prev.map(f => f.name === todayFileName ? { ...f, uploadDate: clientSyncRes.timestamp, recordCount: clientSyncRes.rowsCount, data: parsedRows } : f);
+            } else {
+              return [{ id: `rt-${Date.now()}`, name: todayFileName, uploadDate: clientSyncRes.timestamp, recordCount: clientSyncRes.rowsCount, data: parsedRows }, ...prev];
+            }
+          });
+        }
+      }
+
       // Immediately update Last Updated to right now
-      setLastSyncTime(now);
+      const finalNow = new Date();
+      setLastSyncTime(finalNow);
       if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('dyno_last_sync_time', now.toISOString());
+        localStorage.setItem('dyno_last_sync_time', finalNow.toISOString());
       }
       setCooldownSeconds(300);
       setHasPendingUpdate(false);
 
-      // 2. Non-blocking: background trigger to Railway to schedule next sync batch
-      const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
-      fetch(`${backendUrl}/api/sync`, { method: 'POST' }).catch(() => {});
-
     } catch (err) {
-      alert(`Refresh failed: ${err.message}`);
+      console.error('Refresh sync error:', err);
+      alert(`Refresh sync note: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
@@ -928,8 +1024,9 @@ Dyno Dashboard Auto-Mail`
       }));
       setUploadedFiles(formatted);
 
-      // Set lastSyncTime from the latest [REALTIME_SYNC] file
-      const realtimeFile = formatted.find(f => (f.name || '').startsWith('[REALTIME_SYNC]'));
+      // Set lastSyncTime from today's [REALTIME_SYNC] file or latest
+      const todayFileName = getTodayRealtimeFileName();
+      const realtimeFile = formatted.find(f => f.name === todayFileName) || formatted.find(f => (f.name || '').startsWith('[REALTIME_SYNC]'));
       if (realtimeFile && realtimeFile.uploadDate) {
         setLastSyncTime(realtimeFile.uploadDate);
         if (typeof localStorage !== 'undefined') {
