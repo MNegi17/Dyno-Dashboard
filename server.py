@@ -533,7 +533,7 @@ def send_po_email():
 
 import threading
 import time
-from sync_worker import execute_sync
+from sync_worker import execute_sync, audit_and_reconcile_yesterday, get_supabase_admin_token
 
 def start_background_sync_worker():
     def loop():
@@ -554,8 +554,24 @@ def start_background_sync_worker():
 @app.route('/api/sync', methods=['GET', 'POST'])
 def trigger_realtime_sync_route():
     try:
-        res = execute_sync()
+        force_yesterday = request.args.get('force_yesterday', 'false').lower() == 'true'
+        res = execute_sync(force_reconcile_yesterday=force_yesterday)
         return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/reconcile-yesterday', methods=['GET', 'POST'])
+def trigger_reconcile_yesterday_route():
+    try:
+        force = request.args.get('force', 'false').lower() == 'true'
+        threshold = int(request.args.get('threshold', 10))
+        admin_token = get_supabase_admin_token()
+        reconciled = audit_and_reconcile_yesterday(admin_token, threshold_diff=threshold, force=force)
+        return jsonify({
+            "success": True,
+            "reconciled": reconciled,
+            "message": "Yesterday audit completed successfully"
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

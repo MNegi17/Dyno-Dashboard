@@ -49,11 +49,11 @@ def get_supabase_admin_token():
         return data["access_token"]
 
 def get_today_start_ist():
-    # 12:01 AM IST
+    # 00:00:00 IST
     now = datetime.now(timezone.utc)
     ist_offset = timedelta(hours=5, minutes=30)
     ist_now = now + ist_offset
-    ist_start = datetime(ist_now.year, ist_now.month, ist_now.day, 0, 1, 0, tzinfo=timezone.utc) - ist_offset
+    ist_start = datetime(ist_now.year, ist_now.month, ist_now.day, 0, 0, 0, tzinfo=timezone.utc) - ist_offset
     return ist_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 def get_today_realtime_file_name():
@@ -340,116 +340,196 @@ def transform_all_orders(orders):
 
     return rows
 
-def get_yesterday_window_ist():
+def get_uniware_order_count(from_date, to_date):
+    """
+    Fast 1-request check to get exact totalRecords in Uniware for a time window.
+    """
+    token = get_uniware_token()
+    url = f"{UNIWARE_URL}/services/rest/v1/oms/saleOrder/search"
+    payload = json.dumps({
+        "fromDate": from_date,
+        "toDate": to_date,
+        "dateType": "CREATED",
+        "searchOptions": {
+            "displayStart": 0,
+            "displayLength": 1
+        }
+    }).encode('utf-8')
+
+    for attempt in range(2):
+        try:
+            req = urllib.request.Request(url, data=payload, headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Authorization": f"Bearer {token}"
+            })
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return int(data.get("totalRecords", 0))
+        except Exception as e:
+            print(f"[Uniware Count Attempt {attempt+1}] Error: {e}")
+            token = get_uniware_token(force_refresh=True)
+            time.sleep(1)
+    return 0
+
+def get_day_window_ist(days_ago=1):
+    """
+    Returns full 24-hour UTC window from 00:00:00 IST to 23:59:59 IST for a past day.
+    """
     now = datetime.now(timezone.utc)
     ist_offset = timedelta(hours=5, minutes=30)
     ist_now = now + ist_offset
-    ist_yesterday = ist_now - timedelta(days=1)
+    target_ist = ist_now - timedelta(days=days_ago)
 
-    start_utc = datetime(ist_yesterday.year, ist_yesterday.month, ist_yesterday.day, 0, 1, 0, tzinfo=timezone.utc) - ist_offset
-    end_utc = datetime(ist_yesterday.year, ist_yesterday.month, ist_yesterday.day, 23, 59, 59, tzinfo=timezone.utc) - ist_offset
+    start_utc = datetime(target_ist.year, target_ist.month, target_ist.day, 0, 0, 0, tzinfo=timezone.utc) - ist_offset
+    end_utc = datetime(target_ist.year, target_ist.month, target_ist.day, 23, 59, 59, tzinfo=timezone.utc) - ist_offset
 
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    file_name = f"[REALTIME_SYNC] {ist_yesterday.day:02d} {months[ist_yesterday.month - 1]} {ist_yesterday.year}"
+    file_name = f"[REALTIME_SYNC] {target_ist.day:02d} {months[target_ist.month - 1]} {target_ist.year}"
 
-    return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), file_name
+    return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), file_name, target_ist
 
-def reconcile_yesterday_if_needed(admin_token):
+def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
+    """
+    Automated Audit Engine:
+    Checks real Uniware numbers every morning (and periodically).
+    Compares real Uniware orders against stored Supabase dataset for yesterday.
+    If the discrepancy is greater than threshold_diff (10 orders), automatically fetches 
+    full 24-hour details and updates Supabase. If difference <= 10, leaves it.
+    """
     now = datetime.now(timezone.utc)
     ist_offset = timedelta(hours=5, minutes=30)
     ist_now = now + ist_offset
-    ist_yesterday = ist_now - timedelta(days=1)
 
-    from_date, to_date, file_name = get_yesterday_window_ist()
+    reconciled_any = False
 
-    # Query latest uploaded_files metadata to check for manual files or existing realtime sync
-    get_req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/uploaded_files?select=id,name,record_count,upload_date&order=upload_date.desc&limit=100",
-        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
-    )
-    try:
-        with urllib.request.urlopen(get_req, timeout=30) as resp:
-            all_files = json.loads(resp.read().decode('utf-8'))
-    except Exception as e:
-        print(f"[Yesterday Reconcile] Error checking files: {e}")
-        return
+    for days_ago in [1]:
+        from_date, to_date, file_name, target_ist = get_day_window_ist(days_ago)
+        print(f"\n[Audit Engine] Auditing {file_name} ({from_date} to {to_date})...")
 
-    # Check if a manual file exists for yesterday
-    month_names_long = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-    month_names_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    y_day_str = f"{ist_yesterday.day:02d}"
-    y_day_str_single = f"{ist_yesterday.day}"
-    y_month_long = month_names_long[ist_yesterday.month - 1].lower()
-    y_month_short = month_names_short[ist_yesterday.month - 1].lower()
-
-    for f in all_files:
-        fname = f.get("name", "")
-        # Ignore realtime sync, inventory, launch dates, and return files when checking for manual sale orders
-        if (fname.startswith("[REALTIME_SYNC]") or fname.startswith("[INVENTORY]") or 
-            fname.startswith("[LAUNCH_DATES]") or fname.startswith("[RETURN]") or "FY25" in fname):
+        # 1. Fetch latest files list from Supabase
+        get_req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/uploaded_files?select=id,name,record_count,upload_date&order=upload_date.desc&limit=100",
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
+        )
+        try:
+            with urllib.request.urlopen(get_req, timeout=30) as resp:
+                all_files = json.loads(resp.read().decode('utf-8'))
+        except Exception as e:
+            print(f"[Audit Engine] Error querying Supabase metadata: {e}")
             continue
-        
-        fname_lower = fname.lower()
-        # Check if file matches yesterday (e.g. '12-august', '12_august', '12 august', '12-aug', or '(10-12)-august')
-        if (y_month_long in fname_lower or y_month_short in fname_lower) and (
-            y_day_str in fname_lower or f"{y_day_str_single}-" in fname_lower or f"-{y_day_str_single}" in fname_lower or f"{y_day_str_single}_" in fname_lower
-        ):
-            print(f"[Yesterday Reconcile] Manual file found covering yesterday: '{fname}' ({f.get('record_count', 0)} rows). Skipping automated reconciliation.")
-            return
 
-    # If no manual file exists, check if [REALTIME_SYNC] <yesterday> exists
-    existing_realtime = [f for f in all_files if f.get("name") == file_name]
-    
-    if existing_realtime and existing_realtime[0].get("record_count", 0) >= 600:
-        # Already fully sealed yesterday dataset
-        return
+        # 2. Check if a manual verified Excel file exists for this date
+        month_names_long = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        month_names_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        y_day_str = f"{target_ist.day:02d}"
+        y_day_str_single = f"{target_ist.day}"
+        y_month_long = month_names_long[target_ist.month - 1].lower()
+        y_month_short = month_names_short[target_ist.month - 1].lower()
 
-    # If [REALTIME_SYNC] <yesterday> exists with partial records, or is missing and no manual file exists
-    # Reconcile from Uniware
-    print(f"[Yesterday Reconcile] Running 24-hour reconciliation for {file_name} ({from_date} to {to_date})...")
-    order_codes = search_all_uniware_orders(from_date, to_date)
-    if order_codes:
-        orders = fetch_orders_concurrently(order_codes, max_workers=8)
-        rows = transform_all_orders(orders)
-        new_file_entry = {
-            "name": file_name,
-            "upload_date": datetime.now(timezone.utc).isoformat(),
-            "record_count": len(rows),
-            "data": rows
-        }
+        manual_file_found = None
+        for f in all_files:
+            fname = f.get("name", "")
+            if (fname.startswith("[REALTIME_SYNC]") or fname.startswith("[INVENTORY]") or 
+                fname.startswith("[LAUNCH_DATES]") or fname.startswith("[RETURN]") or "FY25" in fname):
+                continue
+            
+            fname_lower = fname.lower()
+            if (y_month_long in fname_lower or y_month_short in fname_lower) and (
+                y_day_str in fname_lower or f"{y_day_str_single}-" in fname_lower or f"-{y_day_str_single}" in fname_lower or f"{y_day_str_single}_" in fname_lower
+            ):
+                manual_file_found = f
+                break
+
+        if manual_file_found and not force:
+            print(f"[Audit Engine] Manual verified file exists for {target_ist.strftime('%d %b %Y')}: '{manual_file_found['name']}' ({manual_file_found.get('record_count', 0)} rows). Skipping.")
+            continue
+
+        # 3. Query Uniware real order count for this 24-hr window
+        uniware_total_orders = get_uniware_order_count(from_date, to_date)
+        print(f"[Audit Engine] Uniware real orders count: {uniware_total_orders}")
+
+        if uniware_total_orders == 0:
+            print(f"[Audit Engine] No orders on Uniware for {file_name}. Skipping.")
+            continue
+
+        # 4. Check what is currently in Supabase for [REALTIME_SYNC] <date>
+        existing_realtime = [f for f in all_files if f.get("name") == file_name]
+        stored_record_count = existing_realtime[0].get("record_count", 0) if existing_realtime else 0
+
+        stored_unique_orders = 0
         if existing_realtime:
             file_id = existing_realtime[0]["id"]
-            update_req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
-                data=json.dumps(new_file_entry).encode('utf-8'),
-                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                method="PATCH"
+            data_req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}&select=data",
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
             )
-            with urllib.request.urlopen(update_req, timeout=30) as resp:
-                print(f"[Yesterday Reconcile] Updated {file_name} with {len(rows)} rows!")
-        else:
-            insert_req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/uploaded_files",
-                data=json.dumps([new_file_entry]).encode('utf-8'),
-                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(insert_req, timeout=30) as resp:
-                print(f"[Yesterday Reconcile] Created {file_name} with {len(rows)} rows!")
+            try:
+                with urllib.request.urlopen(data_req, timeout=30) as resp:
+                    data_res = json.loads(resp.read().decode('utf-8'))
+                    if data_res and data_res[0].get("data"):
+                        data_rows = data_res[0]["data"]
+                        stored_unique_orders = len(set(r.get("orderCode") for r in data_rows if r.get("orderCode")))
+                        stored_record_count = len(data_rows)
+            except Exception as e:
+                print(f"[Audit Engine] Error inspecting data rows: {e}")
 
-def execute_sync():
+        # Compute difference
+        diff = abs(uniware_total_orders - stored_unique_orders)
+        print(f"[Audit Engine] Comparison for {file_name}: Uniware Orders = {uniware_total_orders}, Stored Orders = {stored_unique_orders} (Stored Units = {stored_record_count}), Discrepancy = {diff} orders")
+
+        # 5. Apply threshold rule: if diff > 10 (or force / empty), fetch full 24-hr data
+        if diff > threshold_diff or force or (stored_record_count == 0):
+            print(f"[Audit Engine] Discrepancy of {diff} > threshold {threshold_diff}. Commencing full 24-hour ingestion from Uniware...")
+            order_codes = search_all_uniware_orders(from_date, to_date)
+            if order_codes:
+                orders = fetch_orders_concurrently(order_codes, max_workers=10)
+                rows = transform_all_orders(orders)
+                new_file_entry = {
+                    "name": file_name,
+                    "upload_date": datetime.now(timezone.utc).isoformat(),
+                    "record_count": len(rows),
+                    "data": rows
+                }
+                if existing_realtime:
+                    file_id = existing_realtime[0]["id"]
+                    update_req = urllib.request.Request(
+                        f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
+                        data=json.dumps(new_file_entry).encode('utf-8'),
+                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                        method="PATCH"
+                    )
+                    with urllib.request.urlopen(update_req, timeout=45) as resp:
+                        print(f"[Audit Engine] Successfully reconciled {file_name} with {len(rows)} units across {len(orders)} orders in Supabase!")
+                        reconciled_any = True
+                else:
+                    insert_req = urllib.request.Request(
+                        f"{SUPABASE_URL}/rest/v1/uploaded_files",
+                        data=json.dumps([new_file_entry]).encode('utf-8'),
+                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(insert_req, timeout=45) as resp:
+                        print(f"[Audit Engine] Successfully created reconciled {file_name} with {len(rows)} units in Supabase!")
+                        reconciled_any = True
+        else:
+            print(f"[Audit Engine] Difference ({diff}) <= {threshold_diff}. Data is accurate, no fetch needed.")
+
+    return reconciled_any
+
+def execute_sync(force_reconcile_yesterday=False):
     timestamp = datetime.now(timezone.utc).isoformat()
     print(f"\n[{timestamp}] [Python Sync] Starting sync...")
 
     admin_token = get_supabase_admin_token()
 
-    # 1. First, reconcile yesterday to ensure full 24-hour finalization
+    # 1. Audit & Reconcile yesterday against Uniware
     try:
-        reconcile_yesterday_if_needed(admin_token)
+        audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=force_reconcile_yesterday)
     except Exception as e:
-        print(f"[Yesterday Reconcile] Exception: {e}")
+        print(f"[Audit Engine] Exception during audit: {e}")
 
-    # 2. Ingest today's live orders from 12:01 AM IST to present
+    # 2. Ingest today's live orders from 00:00:00 IST to present
     from_date = get_today_start_ist()
     file_name = get_today_realtime_file_name()
     now_dt = datetime.now(timezone.utc) - timedelta(minutes=1)

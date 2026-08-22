@@ -11,8 +11,8 @@ export function getTodayStartIST() {
   const istMonth = istNow.getUTCMonth();
   const istDate = istNow.getUTCDate();
 
-  // Construct UTC timestamp corresponding to IST 12:01 AM
-  const istStartMs = Date.UTC(istYear, istMonth, istDate, 0, 1, 0) - istOffsetMs;
+  // Construct UTC timestamp corresponding to IST 00:00:00 (Start of Day)
+  const istStartMs = Date.UTC(istYear, istMonth, istDate, 0, 0, 0) - istOffsetMs;
   return new Date(istStartMs).toISOString();
 }
 
