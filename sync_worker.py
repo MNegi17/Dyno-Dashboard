@@ -403,7 +403,7 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
 
     reconciled_any = False
 
-    for days_ago in [1]:
+    for days_ago in [1, 2]:
         from_date, to_date, file_name, target_ist = get_day_window_ist(days_ago)
         print(f"\n[Audit Engine] Auditing {file_name} ({from_date} to {to_date})...")
 

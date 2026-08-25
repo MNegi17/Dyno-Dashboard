@@ -166,3 +166,151 @@ export async function syncRealtimeSalesToSupabase(options = {}) {
     timestamp: syncTimestamp
   };
 }
+
+/**
+ * Returns full 24-hour window from 00:00:00 IST to 23:59:59 IST for a past day
+ */
+export function getPastDayWindowIST(daysAgo = 1) {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffsetMs);
+  const targetDate = new Date(istNow.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+
+  const year = targetDate.getUTCFullYear();
+  const month = targetDate.getUTCMonth();
+  const date = targetDate.getUTCDate();
+
+  const startUtcMs = Date.UTC(year, month, date, 0, 0, 0) - istOffsetMs;
+  const endUtcMs = Date.UTC(year, month, date, 23, 59, 59) - istOffsetMs;
+
+  const dayStr = date.toString().padStart(2, '0');
+  const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthName = monthShort[month];
+  const fileName = `[REALTIME_SYNC] ${dayStr} ${monthName} ${year}`;
+
+  return {
+    fromDate: new Date(startUtcMs).toISOString(),
+    toDate: new Date(endUtcMs).toISOString(),
+    fileName,
+    day: date,
+    month: month,
+    year: year
+  };
+}
+
+/**
+ * Client-Side Audit & Reconciliation Engine:
+ * When anyone opens or reloads the dashboard (even at 12:30 AM or 1:00 AM next day),
+ * audits yesterday against Uniware. If missing or difference > 10, fetches full 24-hr data
+ * up to 11:59:59 PM from Uniware and updates Supabase automatically.
+ */
+export async function reconcileYesterdayClientSide(options = {}) {
+  const { threshold = 10, force = false } = options;
+  const daysToCheck = [1, 2];
+  const results = [];
+
+  for (const daysAgo of daysToCheck) {
+    try {
+      const { fromDate, toDate, fileName, day, month, year } = getPastDayWindowIST(daysAgo);
+      console.log(`[Client Reconcile] Auditing ${fileName} (${fromDate} to ${toDate})...`);
+
+      // 1. Fetch Supabase files metadata
+      const { data: allFiles, error: fetchErr } = await supabase
+        .from('uploaded_files')
+        .select('id, name, record_count, upload_date')
+        .order('upload_date', { ascending: false })
+        .limit(100);
+
+      if (fetchErr || !allFiles) {
+        console.warn('[Client Reconcile] Could not query uploaded_files:', fetchErr?.message);
+        continue;
+      }
+
+      // 2. Check if a manual verified Excel file exists for this date
+      const monthNamesLong = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+      const yDayStr = day.toString().padStart(2, '0');
+      const yDayStrSingle = day.toString();
+      const yMonthLong = monthNamesLong[month];
+      const yMonthShort = monthNamesShort[month];
+
+      const manualFile = allFiles.find(f => {
+        const fn = (f.name || '').toLowerCase();
+        if (fn.startsWith('[realtime_sync]') || fn.startsWith('[inventory]') || fn.startsWith('[launch_dates]') || fn.startsWith('[return]') || fn.includes('fy25')) {
+          return false;
+        }
+        return (fn.includes(yMonthLong) || fn.includes(yMonthShort)) &&
+               (fn.includes(yDayStr) || fn.includes(`${yDayStrSingle}-`) || fn.includes(`-${yDayStrSingle}`) || fn.includes(`${yDayStrSingle}_`));
+      });
+
+      if (manualFile && !force) {
+        console.log(`[Client Reconcile] Manual file exists for ${fileName}: '${manualFile.name}'. Skipping.`);
+        continue;
+      }
+
+      // 3. Search Uniware orders count for this 24-hr window
+      const searchResult = await searchSaleOrders({ fromDate, toDate, dateType: 'CREATED' });
+      const orderCodes = searchResult.orderCodes || [];
+      const uniwareCount = orderCodes.length;
+      console.log(`[Client Reconcile] Uniware has ${uniwareCount} orders for ${fileName}`);
+
+      if (uniwareCount === 0) continue;
+
+      // 4. Check existing [REALTIME_SYNC] file in Supabase
+      const existingFile = allFiles.find(f => f.name === fileName);
+      let storedUniqueOrders = 0;
+      let storedRecordCount = existingFile?.record_count || 0;
+
+      if (existingFile) {
+        const { data: fileDataRes } = await supabase
+          .from('uploaded_files')
+          .select('data')
+          .eq('id', existingFile.id)
+          .single();
+        if (fileDataRes && fileDataRes.data) {
+          const rows = fileDataRes.data;
+          storedUniqueOrders = new Set(rows.map(r => r.orderCode).filter(Boolean)).size;
+          storedRecordCount = rows.length;
+        }
+      }
+
+      const diff = Math.abs(uniwareCount - storedUniqueOrders);
+      console.log(`[Client Reconcile] Comparison for ${fileName}: Uniware = ${uniwareCount}, Stored = ${storedUniqueOrders} (Units: ${storedRecordCount}), Diff = ${diff}`);
+
+      if (diff > threshold || force || storedRecordCount === 0) {
+        console.log(`[Client Reconcile] Discrepancy (${diff} > ${threshold}). Ingesting full 24-hour dataset from Uniware for ${fileName}...`);
+        const fetchResult = await fetchSaleOrdersWithConcurrency(orderCodes, 6);
+        const orders = fetchResult.orders || [];
+        const normalizedRows = await transformRealtimeOrders(orders);
+
+        const newFileEntry = {
+          name: fileName,
+          upload_date: new Date().toISOString(),
+          record_count: normalizedRows.length,
+          data: normalizedRows
+        };
+
+        if (existingFile) {
+          await supabase
+            .from('uploaded_files')
+            .update(newFileEntry)
+            .eq('id', existingFile.id);
+          console.log(`[Client Reconcile] Successfully updated ${fileName} with ${normalizedRows.length} units!`);
+        } else {
+          await supabase
+            .from('uploaded_files')
+            .insert([newFileEntry]);
+          console.log(`[Client Reconcile] Successfully created ${fileName} with ${normalizedRows.length} units!`);
+        }
+
+        results.push({ fileName, reconciled: true, units: normalizedRows.length, orders: orders.length, data: normalizedRows });
+      } else {
+        console.log(`[Client Reconcile] ${fileName} is accurate (Diff: ${diff} <= ${threshold}).`);
+      }
+    } catch (err) {
+      console.warn(`[Client Reconcile] Error auditing past day:`, err.message);
+    }
+  }
+
+  return results;
+}

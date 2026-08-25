@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { syncRealtimeSalesToSupabase, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName } from './sync/supabaseSync.js';
+import { syncRealtimeSalesToSupabase, reconcileYesterdayClientSide, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName } from './sync/supabaseSync.js';
 import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
 const GlowingLogoIcon = memo(({ size = 36, white = false }) => {
@@ -589,6 +589,8 @@ Dyno Dashboard Auto-Mail`
         if (!synced) {
           await syncRealtimeSalesToSupabase({ force: true });
         }
+        // Background audit for yesterday if needed
+        reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
         setHasPendingUpdate(true);
       } catch (e) {
         console.warn('Background auto-sync:', e.message);
@@ -1055,6 +1057,8 @@ Dyno Dashboard Auto-Mail`
             if (!synced) {
               await syncRealtimeSalesToSupabase({ force: true });
             }
+            // Audit yesterday client-side whenever the app is opened
+            reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
             setHasPendingUpdate(true);
           } catch (e) {
             console.warn('Initial mount auto-sync:', e.message);
