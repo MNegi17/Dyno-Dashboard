@@ -1086,6 +1086,48 @@ Dyno Dashboard Auto-Mail`
     }
   };
 
+  // Smart Auto-Refresh when user returns to tab / unlocks phone / after inactivity
+  useEffect(() => {
+    let lastActiveTime = Date.now();
+
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        const elapsedMinutes = (now - lastActiveTime) / 60000;
+        
+        // If tab was in background for > 2 minutes (or overnight)
+        if (elapsedMinutes >= 2) {
+          console.log(`[Auto-Refresh] Tab focused after ${elapsedMinutes.toFixed(1)} mins inactivity. Refreshing data silently...`);
+          try {
+            await fetchData();
+            reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
+          } catch (e) {
+            console.warn('[Auto-Refresh] Failed to refresh:', e.message);
+          }
+        }
+        lastActiveTime = now;
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    
+    // Periodic silent refresh every 3 minutes while page is open
+    const periodicTimer = setInterval(async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          await fetchData();
+        } catch {}
+      }
+    }, 3 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      clearInterval(periodicTimer);
+    };
+  }, []);
+
   const downloadFilesData = async (files, setProgress) => {
     if (files.length === 0) return;
     setProgress({ active: true, current: 0, total: files.length });
