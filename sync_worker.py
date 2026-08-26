@@ -596,4 +596,17 @@ def execute_sync(force_reconcile_yesterday=False):
     return {"success": True, "orders": len(orders), "rows": len(rows)}
 
 if __name__ == "__main__":
-    execute_sync()
+    import sys
+    force_reconcile = "--force" in sys.argv or "--force-reconcile" in sys.argv
+    loop_mode = "--loop" in sys.argv
+    
+    if loop_mode:
+        print("[Python Sync Worker] Running continuous 5-minute loop...")
+        while True:
+            try:
+                execute_sync(force_reconcile_yesterday=force_reconcile)
+            except Exception as e:
+                print(f"[Loop Exception] {e}")
+            time.sleep(300)
+    else:
+        execute_sync(force_reconcile_yesterday=force_reconcile)

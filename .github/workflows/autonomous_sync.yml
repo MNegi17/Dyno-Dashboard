@@ -1,0 +1,31 @@
+name: Autonomous 24/7 Uniware Sync & Auto-Reconcile
+
+on:
+  schedule:
+    # 1. Runs every 20 minutes continuously 24/7
+    - cron: '*/20 * * * *'
+    # 2. Runs at 11:59 PM IST (18:29 UTC) to seal today's complete data
+    - cron: '29 18 * * *'
+    # 3. Runs at 1:00 AM IST (19:30 UTC) for post-midnight auto-reconciliation
+    - cron: '30 19 * * *'
+    # 4. Runs at 7:00 AM IST (01:30 UTC) for morning health check
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync_and_reconcile:
+    name: Cloud Sync & Audit Engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Autonomous Sync & Reconciliation
+        run: |
+          python sync_worker.py
