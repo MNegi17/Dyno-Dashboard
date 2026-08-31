@@ -5,6 +5,7 @@ applies dynamic Myntra discount pricing, and updates Supabase.
 """
 
 import json
+import re
 import time
 import math
 from datetime import datetime, timezone, timedelta
@@ -403,7 +404,7 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
 
     reconciled_any = False
 
-    for days_ago in [1, 2]:
+    for days_ago in [1]:
         from_date, to_date, file_name, target_ist = get_day_window_ist(days_ago)
         print(f"\n[Audit Engine] Auditing {file_name} ({from_date} to {to_date})...")
 
@@ -419,11 +420,10 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
             print(f"[Audit Engine] Error querying Supabase metadata: {e}")
             continue
 
-        # 2. Check if a manual verified Excel file exists for this date
+        # 2. Check if a manual verified Excel file exists for this date (handles single days and ranges like (27-29)-August)
         month_names_long = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
         month_names_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        y_day_str = f"{target_ist.day:02d}"
-        y_day_str_single = f"{target_ist.day}"
+        target_day = target_ist.day
         y_month_long = month_names_long[target_ist.month - 1].lower()
         y_month_short = month_names_short[target_ist.month - 1].lower()
 
@@ -435,11 +435,25 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
                 continue
             
             fname_lower = fname.lower()
-            if (y_month_long in fname_lower or y_month_short in fname_lower) and (
-                y_day_str in fname_lower or f"{y_day_str_single}-" in fname_lower or f"-{y_day_str_single}" in fname_lower or f"{y_day_str_single}_" in fname_lower
-            ):
-                manual_file_found = f
-                break
+            if y_month_long in fname_lower or y_month_short in fname_lower:
+                # 1. Check range matches like (27-29), 27-29, 27_29, 27 to 29
+                range_matches = re.findall(r"\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?", fname_lower)
+                is_in_range = False
+                for start_str, end_str in range_matches:
+                    try:
+                        start_d, end_d = int(start_str), int(end_str)
+                        if start_d <= target_day <= end_d:
+                            is_in_range = True
+                            break
+                    except ValueError:
+                        pass
+                
+                # 2. Check single exact day match
+                single_match = bool(re.search(rf"(^|[^\d])0?{target_day}([^\d]|$)", fname_lower))
+
+                if is_in_range or single_match:
+                    manual_file_found = f
+                    break
 
         if manual_file_found and not force:
             print(f"[Audit Engine] Manual verified file exists for {target_ist.strftime('%d %b %Y')}: '{manual_file_found['name']}' ({manual_file_found.get('record_count', 0)} rows). Skipping.")

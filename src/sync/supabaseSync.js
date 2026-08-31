@@ -206,7 +206,7 @@ export function getPastDayWindowIST(daysAgo = 1) {
  */
 export async function reconcileYesterdayClientSide(options = {}) {
   const { threshold = 10, force = false } = options;
-  const daysToCheck = [1, 2];
+  const daysToCheck = [1];
   const results = [];
 
   for (const daysAgo of daysToCheck) {
@@ -226,11 +226,9 @@ export async function reconcileYesterdayClientSide(options = {}) {
         continue;
       }
 
-      // 2. Check if a manual verified Excel file exists for this date
+      // 2. Check if a manual verified Excel file exists for this date (handles single days & ranges like (27-29)-August)
       const monthNamesLong = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
       const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const yDayStr = day.toString().padStart(2, '0');
-      const yDayStrSingle = day.toString();
       const yMonthLong = monthNamesLong[month];
       const yMonthShort = monthNamesShort[month];
 
@@ -239,8 +237,23 @@ export async function reconcileYesterdayClientSide(options = {}) {
         if (fn.startsWith('[realtime_sync]') || fn.startsWith('[inventory]') || fn.startsWith('[launch_dates]') || fn.startsWith('[return]') || fn.includes('fy25')) {
           return false;
         }
-        return (fn.includes(yMonthLong) || fn.includes(yMonthShort)) &&
-               (fn.includes(yDayStr) || fn.includes(`${yDayStrSingle}-`) || fn.includes(`-${yDayStrSingle}`) || fn.includes(`${yDayStrSingle}_`));
+        if (!fn.includes(yMonthLong) && !fn.includes(yMonthShort)) {
+          return false;
+        }
+        
+        // 1. Check range matches like (27-29), 27-29, 27_29, 27 to 29
+        const rangeMatches = [...fn.matchAll(/\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?/g)];
+        for (const m of rangeMatches) {
+          const startD = parseInt(m[1], 10);
+          const endD = parseInt(m[2], 10);
+          if (startD <= day && day <= endD) {
+            return true;
+          }
+        }
+        
+        // 2. Check exact single day match
+        const singleRegex = new RegExp(`(^|[^\\d])0?${day}([^\\d]|$)`);
+        return singleRegex.test(fn);
       });
 
       if (manualFile && !force) {
