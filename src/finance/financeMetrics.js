@@ -1,4 +1,4 @@
-import { normalizeChannelName } from '../sales/channelNormalization';
+import { normalizeChannelName } from '../sales/channelNormalization.js';
 
 /**
  * Calculates comprehensive financial metrics:
@@ -122,18 +122,19 @@ export const calculateFinanceMetrics = ({
   let totalCancelledUnits = 0;
 
   (cancellationData || []).forEach(row => {
-    const chName = normalizeChannelName(row.channel_name);
+    const rawCh = row.channel_name || row['Channel Name'] || row.channel_entry || row.channel || 'Unknown';
+    const chName = normalizeChannelName(rawCh);
     if (selectedChannels && selectedChannels.length > 0 && !selectedChannels.includes(chName)) {
       return;
     }
 
-    const units = parseFloat(row.units) || 0;
-    const price = parseFloat(row.price) || 0;
+    const units = parseFloat(row.units ?? row.Units ?? row.qty ?? row.quantity ?? 0) || 0;
+    const price = parseFloat(row.price ?? row['New SP'] ?? row.new_sp ?? row.total_price ?? row.total ?? 0) || 0;
 
     totalCancelledUnits += units;
     totalCancelledRevenue += price;
 
-    const ch = ensureChannel(row.channel_name || 'Unknown');
+    const ch = ensureChannel(rawCh);
     ch.cancelledUnits += units;
     ch.cancelledRevenue += price;
   });
