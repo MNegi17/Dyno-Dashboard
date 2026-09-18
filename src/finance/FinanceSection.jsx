@@ -11,8 +11,7 @@ import {
   BarChart3, 
   AlertCircle,
   Package,
-  ArrowDownRight,
-  ArrowUpRight
+  Info
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -45,35 +44,49 @@ const formatUnits = (val) => {
 export const FinanceSection = ({
   salesData = [],
   returnData = [],
-  availableMonths = [],
-  getChannelColor
+  allSalesData = [],
+  selectedMonth = ['July'],
+  selectedFY = '2026',
+  selectedChannels = [],
+  userRole = 'viewer',
+  getChannelColor,
+  onReturnUpload
 }) => {
-  // 1. Month state: default to 'July' for testing
-  const [selectedMonth, setSelectedMonth] = useState('July');
-  const [selectedYear, setSelectedYear] = useState('2026');
+  // Determine primary month name for cancellations mapping
+  const primaryMonth = useMemo(() => {
+    if (Array.isArray(selectedMonth) && selectedMonth.length > 0) {
+      return selectedMonth[0];
+    }
+    if (typeof selectedMonth === 'string' && selectedMonth !== 'All') {
+      return selectedMonth;
+    }
+    return 'July';
+  }, [selectedMonth]);
+
   const [cancellationsData, setCancellationsData] = useState([]);
   
-  // Upload modal state
+  // Upload modal state (Admin only)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef(null);
 
-  // 2. Load cancellations when month changes
+  // Load cancellations when primary month or year changes
   useEffect(() => {
-    const loaded = loadCancellations(selectedMonth, selectedYear);
+    const loaded = loadCancellations(primaryMonth, selectedFY);
     setCancellationsData(loaded);
-  }, [selectedMonth, selectedYear]);
+  }, [primaryMonth, selectedFY]);
 
-  // 3. Compute all financial metrics
+  // Compute all financial metrics dynamically from the filtered datasets
   const metrics = useMemo(() => {
     return calculateFinanceMetrics({
       salesData,
       returnData,
       cancellationData: cancellationsData,
-      selectedMonth
+      allSalesData,
+      selectedChannels
     });
-  }, [salesData, returnData, cancellationsData, selectedMonth]);
+  }, [salesData, returnData, cancellationsData, allSalesData, selectedChannels]);
 
   // Handle cancellation file upload
   const handleFileUpload = async (e) => {
@@ -83,15 +96,12 @@ export const FinanceSection = ({
     setIsProcessing(true);
     setUploadStatus(null);
     try {
-      const res = await parseCancellationFile(file, selectedMonth, selectedYear);
+      const res = await parseCancellationFile(file, primaryMonth, selectedFY);
       setCancellationsData(res.rows);
       setUploadStatus({
         success: true,
-        message: `Successfully ingested "${res.fileName}"! ${formatUnits(res.totalUnits)} cancelled units (${formatINR(res.totalPrice)}) registered for ${res.month} ${res.year}.`
+        message: `Successfully ingested "${res.fileName}"! ${formatUnits(res.totalUnits)} cancelled units (${formatINR(res.totalPrice)}) registered.`
       });
-      if (res.month && res.month !== selectedMonth) {
-        setSelectedMonth(res.month);
-      }
     } catch (err) {
       setUploadStatus({
         success: false,
@@ -104,59 +114,45 @@ export const FinanceSection = ({
   };
 
   const handleResetCancellations = () => {
-    clearCancellations(selectedMonth, selectedYear);
-    const reloaded = loadCancellations(selectedMonth, selectedYear);
+    clearCancellations(primaryMonth, selectedFY);
+    const reloaded = loadCancellations(primaryMonth, selectedFY);
     setCancellationsData(reloaded);
     setUploadStatus({
       success: true,
-      message: `Reset to default cancellation dataset for ${selectedMonth} ${selectedYear}.`
+      message: `Reset to default cancellation dataset for ${primaryMonth} ${selectedFY}.`
     });
   };
 
-  // Month options (ensure July is prominently available)
-  const monthOptions = useMemo(() => {
-    const set = new Set(['July']);
-    (availableMonths || []).forEach(m => {
-      if (m && m !== 'Unknown') set.add(m);
-    });
-    return Array.from(set);
-  }, [availableMonths]);
+  const activeMonthLabel = Array.isArray(selectedMonth) && selectedMonth.length > 0 
+    ? selectedMonth.join(', ') 
+    : (selectedMonth || 'All Months');
 
   return (
     <div className="finance-container">
-      {/* Top Header Controls */}
-      <div className="finance-header-card">
-        <div className="finance-title-group">
-          <h2>
-            <DollarSign size={28} style={{ color: '#00f2c4' }} />
-            Finance & Net Realization Hub
-          </h2>
-          <p>
-            Comprehensive P&L Reconciliation: Gross Revenue minus Cancellations & Returns (Customer Return + RTO)
-          </p>
+      {/* Top Banner: Concise indicator matching Dashboard aesthetic */}
+      <div className="finance-summary-bar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            Active Period: <strong style={{ color: '#fff' }}>{activeMonthLabel} ({selectedFY})</strong>
+          </span>
+          {selectedChannels && selectedChannels.length > 0 && (
+            <span style={{ fontSize: '0.82rem', color: '#00f2c4', background: 'rgba(0,242,196,0.1)', padding: '2px 8px', borderRadius: '6px' }}>
+              Filtered: {selectedChannels.join(', ')}
+            </span>
+          )}
         </div>
 
-        <div className="finance-controls-bar">
-          <div className="month-pills-wrapper">
-            {monthOptions.map(m => (
-              <button
-                key={m}
-                className={`month-pill ${selectedMonth === m ? 'active' : ''}`}
-                onClick={() => setSelectedMonth(m)}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-
+        {/* Upload Cancellations Option: Visible to Admin Only */}
+        {userRole === 'admin' && (
           <button 
             className="finance-action-btn"
             onClick={() => setIsModalOpen(true)}
+            title="Admin: Upload monthly cancelled orders spreadsheet"
           >
-            <UploadCloud size={18} />
+            <UploadCloud size={17} />
             Upload Cancellations
           </button>
-        </div>
+        )}
       </div>
 
       {/* Main Metric Cards Grid (4 Core Tiles) */}
@@ -273,7 +269,7 @@ export const FinanceSection = ({
             <div className="submetric-row">
               <span className="submetric-label">Dataset:</span>
               <span className="submetric-val" style={{ fontSize: '0.75rem', color: '#ff7875' }}>
-                {cancellationsData.length > 0 ? `${cancellationsData.length} SKUs loaded` : 'No file uploaded'}
+                {cancellationsData.length > 0 ? `${formatUnits(metrics.cancellations.units)} units (${cancellationsData.length} records)` : 'No cancellation file'}
               </span>
             </div>
             <div className="submetric-row">
@@ -324,18 +320,23 @@ export const FinanceSection = ({
                 {formatUnits(metrics.returns.rtoUnits)} units ({formatINR(metrics.returns.rtoRevenue)})
               </span>
             </div>
+            {metrics.returns.rtoUnits === 0 && metrics.returns.units > 0 && (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
+                * Historical returns in DB had no Return Type column. Upload return file with "Return Type" to split RTO.
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Visual Waterfall Chart & Insights */}
+      {/* Visual Waterfall Chart & Health Summary */}
       <div className="finance-content-row split">
         {/* Waterfall / Deduction Flow Chart */}
         <div className="finance-section-card">
           <div className="section-header">
             <h3>
               <BarChart3 size={20} style={{ color: '#1d8cf8' }} />
-              Revenue Realization Bridge ({selectedMonth})
+              Revenue Realization Bridge ({activeMonthLabel})
             </h3>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               Gross → Deductions → Net
@@ -473,7 +474,7 @@ export const FinanceSection = ({
               {metrics.channelBreakdown.length === 0 ? (
                 <tr>
                   <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
-                    No channel sales data available for {selectedMonth}.
+                    No channel sales data available for {activeMonthLabel}.
                   </td>
                 </tr>
               ) : (
@@ -523,8 +524,8 @@ export const FinanceSection = ({
         </div>
       </div>
 
-      {/* Upload Modal */}
-      {isModalOpen && (
+      {/* Upload Modal (Admin Only) */}
+      {isModalOpen && userRole === 'admin' && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">

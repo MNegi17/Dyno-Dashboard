@@ -8,14 +8,9 @@ export const calculateFinanceMetrics = ({
   salesData = [],
   returnData = [],
   cancellationData = [],
-  selectedMonth = 'July'
+  allSalesData = [],
+  selectedChannels = []
 }) => {
-  // 1. Filter Sales for Selected Month
-  const monthSales = salesData.filter(row => {
-    if (!selectedMonth || selectedMonth === 'All') return true;
-    return (row.monthName || '').toLowerCase() === selectedMonth.toLowerCase();
-  });
-
   let grossRevenue = 0;
   let grossUnits = 0;
   const skuSalesMap = {};
@@ -32,6 +27,8 @@ export const calculateFinanceMetrics = ({
         cancelledUnits: 0,
         returnRevenue: 0,
         returnUnits: 0,
+        customerReturnRevenue: 0,
+        customerReturnUnits: 0,
         rtoRevenue: 0,
         rtoUnits: 0,
         netRevenue: 0,
@@ -42,34 +39,32 @@ export const calculateFinanceMetrics = ({
     return channelMetricsMap[norm];
   };
 
-  monthSales.forEach(row => {
-    const val = parseFloat(row.priceVal) || 0;
-    grossRevenue += val;
-    grossUnits += 1;
-
-    // Track SKU average selling price for smart return valuation
+  // Build broader SKU ASP map from all sales data or current sales data
+  const baseSales = (allSalesData && allSalesData.length > 0) ? allSalesData : salesData;
+  baseSales.forEach(row => {
     const sku = (row.item_color || row.itemcolor || row.sku || '').trim().toUpperCase();
-    if (sku) {
-      if (!skuSalesMap[sku]) {
-        skuSalesMap[sku] = { count: 0, revenue: 0 };
-      }
+    const val = parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0;
+    if (sku && val > 0) {
+      if (!skuSalesMap[sku]) skuSalesMap[sku] = { count: 0, revenue: 0 };
       skuSalesMap[sku].count += 1;
       skuSalesMap[sku].revenue += val;
     }
+  });
+
+  // 1. Process Sales (already filtered by App.jsx)
+  salesData.forEach(row => {
+    const val = parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0;
+    grossRevenue += val;
+    grossUnits += 1;
 
     const ch = ensureChannel(row.channel_name || row.channel || 'Unknown');
     ch.grossRevenue += val;
     ch.grossUnits += 1;
   });
 
-  const overallAvgASP = grossUnits > 0 ? (grossRevenue / grossUnits) : 0;
+  const overallAvgASP = grossUnits > 0 ? (grossRevenue / grossUnits) : 850;
 
-  // 2. Filter & Value Returns
-  const monthReturns = returnData.filter(row => {
-    if (!selectedMonth || selectedMonth === 'All') return true;
-    return (row.monthName || '').toLowerCase() === selectedMonth.toLowerCase();
-  });
-
+  // 2. Process Returns (already filtered by App.jsx)
   let totalReturnRevenue = 0;
   let totalReturnUnits = 0;
   let customerReturnRevenue = 0;
@@ -77,19 +72,20 @@ export const calculateFinanceMetrics = ({
   let rtoRevenue = 0;
   let rtoUnits = 0;
 
-  monthReturns.forEach(row => {
+  returnData.forEach(row => {
     const qty = parseFloat(row.return_qty) || 1;
-    const sku = (row.item_color || '').trim().toUpperCase();
+    const sku = (row.item_color || row.itemcolor || row.sku || '').trim().toUpperCase();
 
-    // Determine unit price: explicitly provided, or matched against SKU sales ASP, or overall ASP
+    // Priority 1: Exact 'Total' column from return file (as requested by user)
     let unitPrice = 0;
-    if (row.price !== undefined && !isNaN(parseFloat(row.price))) {
-      unitPrice = parseFloat(row.price);
-    } else if (row.total !== undefined && !isNaN(parseFloat(row.total))) {
-      unitPrice = parseFloat(row.total) / (qty || 1);
+    const rowTotal = parseFloat(row.total ?? row.price ?? 0);
+    if (rowTotal > 0) {
+      unitPrice = rowTotal / (qty || 1);
     } else if (sku && skuSalesMap[sku] && skuSalesMap[sku].count > 0) {
+      // Priority 2: Match against SKU sales ASP
       unitPrice = skuSalesMap[sku].revenue / skuSalesMap[sku].count;
     } else {
+      // Priority 3: Overall Sales ASP
       unitPrice = overallAvgASP;
     }
 
@@ -98,7 +94,7 @@ export const calculateFinanceMetrics = ({
     totalReturnRevenue += returnVal;
 
     // Detect Customer Return vs Courier Return (RTO)
-    const rawType = (row.return_type || row.returntype || '').toLowerCase();
+    const rawType = (row.return_type || row.returntype || row.type || '').toLowerCase().trim();
     const isRTO = rawType.includes('courier') || rawType.includes('rto');
 
     if (isRTO) {
@@ -115,14 +111,22 @@ export const calculateFinanceMetrics = ({
     if (isRTO) {
       ch.rtoUnits += qty;
       ch.rtoRevenue += returnVal;
+    } else {
+      ch.customerReturnUnits += qty;
+      ch.customerReturnRevenue += returnVal;
     }
   });
 
-  // 3. Aggregate Cancellations
+  // 3. Process Cancellations (filter by selectedChannels if selected)
   let totalCancelledRevenue = 0;
   let totalCancelledUnits = 0;
 
   (cancellationData || []).forEach(row => {
+    const chName = normalizeChannelName(row.channel_name);
+    if (selectedChannels && selectedChannels.length > 0 && !selectedChannels.includes(chName)) {
+      return;
+    }
+
     const units = parseFloat(row.units) || 0;
     const price = parseFloat(row.price) || 0;
 
@@ -143,7 +147,7 @@ export const calculateFinanceMetrics = ({
   const returnRate = grossUnits > 0 ? (totalReturnUnits / grossUnits) * 100 : 0;
   const cancellationRate = grossUnits > 0 ? (totalCancelledUnits / grossUnits) * 100 : 0;
 
-  // Finalize Channel Breakdown
+  // Channel breakdown
   const channelBreakdown = Object.values(channelMetricsMap)
     .filter(ch => ch.grossUnits > 0 || ch.cancelledUnits > 0 || ch.returnUnits > 0)
     .map(ch => {

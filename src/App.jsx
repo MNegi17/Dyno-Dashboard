@@ -1181,7 +1181,8 @@ Dyno Dashboard Auto-Mail`
                   return_qty: parseFloat(row.return_qty) || 0,
                     division: row.division || 'Unknown',
                     categories: row.categories || 'Unknown',
-                    return_type: row.return_type || row.returntype || 'Customer Return',
+                    total: parseFloat(row.total || row.price || 0) || 0,
+                    return_type: row.return_type || row.returntype || '',
                     price: parseFloat(row.price || row.total || row.unit_price || 0) || 0,
                   is_return: true
                 };
@@ -2644,6 +2645,7 @@ Dyno Dashboard Auto-Mail`
         const categoryVal = normalizedRow.category || normalizedRow.categories || 'Unknown';
           const returnTypeVal = normalizedRow.return_type || normalizedRow.returntype || 'Customer Return';
           const returnPriceVal = parseFloat(normalizedRow.total || normalizedRow.unit_price || normalizedRow.sales || normalizedRow.price || 0) || 0;
+          const returnTotalVal = parseFloat(normalizedRow.total || returnPriceVal || 0) || 0;
 
         return {
           parsedDate: dateObj ? dateObj.toISOString() : null,
@@ -2657,6 +2659,7 @@ Dyno Dashboard Auto-Mail`
           categories: categoryVal,
             return_type: returnTypeVal,
             price: returnPriceVal,
+            total: returnTotalVal,
             is_return: true
         };
       });
@@ -4339,7 +4342,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Home size={20} />
               <span>Dashboard</span>
             </div>
-              <div className={`nav-item ${activePage === 'finance' ? 'active' : ''}`} onClick={() => { setActivePage('finance'); setIsMobileMenuOpen(false); }}>
+              <div className={`nav-item ${activePage === 'finance' ? 'active' : ''}`} onClick={() => { setActivePage('finance'); setIsMobileMenuOpen(false); if (!selectedMonth || selectedMonth.length === 0) setSelectedMonth(['July']); }}>
                 <DollarSign size={20} />
                 <span>Finance</span>
               </div>
@@ -4485,10 +4488,15 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
         {activePage === 'finance' ? (
             <div className="dashboard-content">
               <FinanceSection
-                salesData={data}
-                returnData={returnData}
-                availableMonths={filterOptions.months}
+                salesData={filteredData}
+                returnData={filteredReturnData}
+                allSalesData={data}
+                selectedMonth={selectedMonth}
+                selectedFY={selectedFY}
+                selectedChannels={selectedChannels}
+                userRole={userRole}
                 getChannelColor={getChannelColor}
+                onReturnUpload={handleReturnUpload}
               />
             </div>
           ) : activePage === 'raw_files' && userRole === 'admin' ? (
@@ -6216,7 +6224,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                 {/* Center Hero: Today Quick Filter */}
                 <div className="today-center-wrapper">
-                  {activePage !== 'goals' && (() => {
+                  {activePage !== 'goals' && activePage !== 'finance' && (() => {
                     const { currentMonth, formattedToday, currentFY } = getTodayInfo();
                     const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
                     return (
@@ -6268,8 +6276,8 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             {activePage !== 'raw_files' && activePage !== 'intelli_report' && activePage !== 'previous_years' && (
               <div className="filters-container">
                 {activePage !== 'goals' && (
-                  <CustomSelect 
-                    value={selectedFY} 
+                    <CustomSelect 
+                      value={selectedFY} 
                     options={['2026']} 
                     onChange={(val) => {
                       setSelectedFY(val);
@@ -6289,7 +6297,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   placeholder="All Months" 
                 />
                 
-                {activePage !== 'goals' && (
+                {activePage !== 'goals' && activePage !== 'finance' && (
                   <>
                     <CustomSelect value={selectedDate} options={filterOptions.dates} onChange={setSelectedDate} placeholder="All Dates" />
                     {activePage !== 'product_level' && (
@@ -6301,9 +6309,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 {activePage !== 'insights' && activePage !== 'goals' && (
                   <>
                     <CustomMultiSelect values={selectedChannels} options={filterOptions.channels} onChange={setSelectedChannels} placeholder="All Channels" />
-                    {activePage !== 'product_level' && (
-                      <>
-                        <CustomMultiSelect values={selectedCategories} options={filterOptions.categories} onChange={setSelectedCategories} placeholder="All Categories" />
+                    {activePage !== 'product_level' && activePage !== 'finance' && (
+                        <>
+                          <CustomMultiSelect values={selectedCategories} options={filterOptions.categories} onChange={setSelectedCategories} placeholder="All Categories" />
                         <CustomMultiSelect values={selectedGenders} options={['Boys', 'Girls', 'Unisex']} onChange={setSelectedGenders} placeholder="All Genders" />
                       </>
                     )}
