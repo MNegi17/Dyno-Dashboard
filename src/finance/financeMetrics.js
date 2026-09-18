@@ -166,9 +166,9 @@ export const calculateFinanceMetrics = ({
 
   // Waterfall Chart Data
   const waterfallData = [
-    { name: 'Gross Revenue', value: Math.round(grossRevenue), displayVal: grossRevenue, fill: '#1d8cf8' },
-    { name: 'Cancellations', value: Math.round(totalCancelledRevenue), displayVal: totalCancelledRevenue, fill: '#ff4d4f' },
-    { name: 'Returns & RTO', value: Math.round(totalReturnRevenue), displayVal: totalReturnRevenue, fill: '#ba54f5' },
+    { name: 'Gross Revenue', value: Math.round(grossRevenue), displayVal: grossRevenue, fill: '#ba54f5' },
+    { name: 'Cancellations', value: Math.round(totalCancelledRevenue), displayVal: totalCancelledRevenue, fill: '#8a70d6' },
+    { name: 'Returns & RTO', value: Math.round(totalReturnRevenue), displayVal: totalReturnRevenue, fill: '#9d4edd' },
     { name: 'Net Revenue', value: Math.round(netRevenue), displayVal: netRevenue, fill: '#00f2c4' }
   ];
 

@@ -1,17 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
-  DollarSign, 
-  TrendingUp, 
-  RotateCcw, 
-  XCircle, 
   UploadCloud, 
   Layers, 
   CheckCircle2, 
   X, 
   BarChart3, 
   AlertCircle,
-  Package,
-  Info
+  Package
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -28,7 +23,7 @@ import {
   parseCancellationFile, 
   clearCancellations 
 } from './cancellationStorage';
-import { calculateFinanceMetrics } from './financeMetrics';
+import { calculateFinanceMetrics } from './financeMetrics.js';
 import './FinanceSection.css';
 
 const formatINR = (val) => {
@@ -129,45 +124,30 @@ export const FinanceSection = ({
 
   return (
     <div className="finance-container">
-      {/* Top Banner: Concise indicator matching Dashboard aesthetic */}
-      <div className="finance-summary-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-            Active Period: <strong style={{ color: '#fff' }}>{activeMonthLabel} ({selectedFY})</strong>
-          </span>
-          {selectedChannels && selectedChannels.length > 0 && (
-            <span style={{ fontSize: '0.82rem', color: '#00f2c4', background: 'rgba(0,242,196,0.1)', padding: '2px 8px', borderRadius: '6px' }}>
-              Filtered: {selectedChannels.join(', ')}
-            </span>
-          )}
-        </div>
-
-        {/* Upload Cancellations Option: Visible to Admin Only */}
-        {userRole === 'admin' && (
+      {/* Top Action Row: Admin Upload Button */}
+      {userRole === 'admin' && (
+        <div className="finance-admin-bar">
           <button 
             className="finance-action-btn"
             onClick={() => setIsModalOpen(true)}
             title="Admin: Upload monthly cancelled orders spreadsheet"
           >
-            <UploadCloud size={17} />
+            <UploadCloud size={16} />
             Upload Cancellations
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Main Metric Cards Grid (4 Core Tiles) */}
       <div className="finance-grid">
-        {/* Tile 1: NET REVENUE & UNITS (Main Hero Tile) */}
+        {/* Tile 1: NET REVENUE & UNITS (Main Hero Tile - Left Distinct as Requested) */}
         <div className="finance-card hero-net">
           <div className="card-top-row">
             <div className="card-title-group">
-              <span className="card-label">Realized Sales</span>
-              <span style={{ fontSize: '0.8rem', color: '#00f2c4', fontWeight: 700 }}>
-                ★ Main Net Metric
+              <span className="card-label">Net Revenue</span>
+              <span className="card-sub-info" style={{ color: '#00f2c4' }}>
+                Gross − Cancellations − Returns
               </span>
-            </div>
-            <div className="card-icon-box icon-net">
-              <TrendingUp size={24} />
             </div>
           </div>
 
@@ -191,25 +171,20 @@ export const FinanceSection = ({
               </span>
             </div>
             <div className="submetric-row">
-              <span className="submetric-label">Gross Deduction:</span>
-              <span className="submetric-val" style={{ color: '#ff6491' }}>
+              <span className="submetric-label">Total Deduction:</span>
+              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
                 - {formatINR(metrics.cancellations.revenue + metrics.returns.revenue)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Tile 2: GROSS REVENUE TILE */}
+        {/* Tile 2: GROSS REVENUE TILE (Clean Purple & White-Purple Theme) */}
         <div className="finance-card">
           <div className="card-top-row">
             <div className="card-title-group">
               <span className="card-label">Gross Revenue</span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Total Order Sales
-              </span>
-            </div>
-            <div className="card-icon-box icon-gross">
-              <DollarSign size={24} />
+              <span className="card-sub-info">Total Order Sales</span>
             </div>
           </div>
 
@@ -219,47 +194,42 @@ export const FinanceSection = ({
             </div>
             <div className="metric-subtitle">
               <span>{formatUnits(metrics.gross.units)} Total Units</span>
-              <span className="badge-pill badge-blue">Sales Only</span>
+              <span className="badge-pill badge-purple-clean">Sales Only</span>
             </div>
           </div>
 
           <div className="card-bottom-pills">
             <div className="submetric-row">
               <span className="submetric-label">Gross ASP:</span>
-              <span className="submetric-val">
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
                 {formatINR(metrics.gross.asp)}
               </span>
             </div>
             <div className="submetric-row">
               <span className="submetric-label">Active Channels:</span>
-              <span className="submetric-val">
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
                 {metrics.channelBreakdown.length} Marketplaces
               </span>
             </div>
           </div>
         </div>
 
-        {/* Tile 3: CANCELLATIONS TILE */}
+        {/* Tile 3: CANCELLATIONS TILE (Clean Purple & White-Purple Theme) */}
         <div className="finance-card">
           <div className="card-top-row">
             <div className="card-title-group">
               <span className="card-label">Cancellations</span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Pre-dispatch Cancelled
-              </span>
-            </div>
-            <div className="card-icon-box icon-cancel">
-              <XCircle size={24} />
+              <span className="card-sub-info">Pre-dispatch Cancelled</span>
             </div>
           </div>
 
           <div className="card-main-metric">
-            <div className="metric-number" style={{ color: '#ff4d4f' }}>
+            <div className="metric-number">
               {formatINR(metrics.cancellations.revenue)}
             </div>
             <div className="metric-subtitle">
               <span>{formatUnits(metrics.cancellations.units)} Cancelled Units</span>
-              <span className="badge-pill badge-red">
+              <span className="badge-pill badge-purple-clean">
                 {metrics.cancellations.rate.toFixed(1)}% Rate
               </span>
             </div>
@@ -268,40 +238,35 @@ export const FinanceSection = ({
           <div className="card-bottom-pills">
             <div className="submetric-row">
               <span className="submetric-label">Dataset:</span>
-              <span className="submetric-val" style={{ fontSize: '0.75rem', color: '#ff7875' }}>
+              <span className="submetric-val" style={{ fontSize: '0.78rem', color: '#d6c8ff' }}>
                 {cancellationsData.length > 0 ? `${formatUnits(metrics.cancellations.units)} units (${cancellationsData.length} records)` : 'No cancellation file'}
               </span>
             </div>
             <div className="submetric-row">
               <span className="submetric-label">Impact on Gross:</span>
-              <span className="submetric-val" style={{ color: '#ff4d4f' }}>
+              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
                 - {formatINR(metrics.cancellations.revenue)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Tile 4: RETURNS & RTO TILE */}
+        {/* Tile 4: RETURNS & RTO TILE (Clean Purple & White-Purple Theme) */}
         <div className="finance-card">
           <div className="card-top-row">
             <div className="card-title-group">
               <span className="card-label">Returns & RTO</span>
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                Customer Return + Courier RTO
-              </span>
-            </div>
-            <div className="card-icon-box icon-returns">
-              <RotateCcw size={24} />
+              <span className="card-sub-info">Customer Return + Courier RTO</span>
             </div>
           </div>
 
           <div className="card-main-metric">
-            <div className="metric-number" style={{ color: '#ba54f5' }}>
+            <div className="metric-number">
               {formatINR(metrics.returns.revenue)}
             </div>
             <div className="metric-subtitle">
               <span>{formatUnits(metrics.returns.units)} Combined Units</span>
-              <span className="badge-pill badge-purple">
+              <span className="badge-pill badge-purple-clean">
                 {metrics.returns.rate.toFixed(1)}% Return Rate
               </span>
             </div>
@@ -310,21 +275,16 @@ export const FinanceSection = ({
           <div className="card-bottom-pills">
             <div className="submetric-row">
               <span className="submetric-label">Customer Return:</span>
-              <span className="submetric-val" style={{ color: '#d3adf7' }}>
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
                 {formatUnits(metrics.returns.customerReturnUnits)} units ({formatINR(metrics.returns.customerReturnRevenue)})
               </span>
             </div>
             <div className="submetric-row">
               <span className="submetric-label">Courier Return (RTO):</span>
-              <span className="submetric-val" style={{ color: '#b37feb' }}>
+              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
                 {formatUnits(metrics.returns.rtoUnits)} units ({formatINR(metrics.returns.rtoRevenue)})
               </span>
             </div>
-            {metrics.returns.rtoUnits === 0 && metrics.returns.units > 0 && (
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>
-                * Historical returns in DB had no Return Type column. Upload return file with "Return Type" to split RTO.
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -335,10 +295,9 @@ export const FinanceSection = ({
         <div className="finance-section-card">
           <div className="section-header">
             <h3>
-              <BarChart3 size={20} style={{ color: '#1d8cf8' }} />
               Revenue Realization Bridge ({activeMonthLabel})
             </h3>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
               Gross → Deductions → Net
             </span>
           </div>
@@ -346,21 +305,21 @@ export const FinanceSection = ({
           <div style={{ height: 260, width: '100%' }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={metrics.waterfallData} margin={{ top: 10, right: 15, left: 15, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(186, 84, 245, 0.08)" />
                 <XAxis 
                   dataKey="name" 
-                  stroke="#9a9a9a" 
-                  tick={{ fill: '#9a9a9a', fontSize: 11 }} 
+                  stroke="#a78bfa" 
+                  tick={{ fill: '#c4b5fd', fontSize: 11 }} 
                 />
                 <YAxis 
-                  stroke="#9a9a9a" 
-                  tick={{ fill: '#9a9a9a', fontSize: 11 }}
+                  stroke="#a78bfa" 
+                  tick={{ fill: '#c4b5fd', fontSize: 11 }}
                   tickFormatter={(v) => '₹' + (v / 100000).toFixed(1) + 'L'}
                 />
                 <Tooltip 
                   contentStyle={{ 
-                    background: '#1d213b', 
-                    border: '1px solid rgba(255,255,255,0.15)', 
+                    background: '#1a162b', 
+                    border: '1px solid rgba(186, 84, 245, 0.25)', 
                     borderRadius: '8px',
                     color: '#fff'
                   }}
@@ -379,11 +338,10 @@ export const FinanceSection = ({
           </div>
         </div>
 
-        {/* Deductions & Realization Summary Card */}
+        {/* Deductions & Realization Summary Card (Purple & White-Purple Theme) */}
         <div className="finance-section-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div className="section-header">
             <h3>
-              <Layers size={20} style={{ color: '#00f2c4' }} />
               Financial Health & Deduction Summary
             </h3>
             <span className="badge-pill badge-cyan">
@@ -394,62 +352,58 @@ export const FinanceSection = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
-                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                <span style={{ fontSize: '0.85rem', color: '#c4b5fd' }}>
                   Total Realization Rate (Net / Gross)
                 </span>
                 <span style={{ fontWeight: 700, color: '#00f2c4' }}>
                   {metrics.net.realizationRate.toFixed(1)}%
                 </span>
               </div>
-              <div style={{ width: '100%', height: '8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px', overflow: 'hidden' }}>
-                <div style={{ width: `${Math.min(100, metrics.net.realizationRate)}%`, height: '100%', background: 'linear-gradient(90deg, #00f2c4, #1d8cf8)', borderRadius: '4px' }} />
+              <div style={{ width: '100%', height: '8px', background: 'rgba(186, 84, 245, 0.12)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, metrics.net.realizationRate)}%`, height: '100%', background: 'linear-gradient(90deg, #ba54f5, #00f2c4)', borderRadius: '4px' }} />
               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <div style={{ background: 'rgba(186, 84, 245, 0.06)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.15)' }}>
+                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>
                   Cancellations Leakage
                 </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ff4d4f' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff' }}>
                   {metrics.cancellations.rate.toFixed(1)}%
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#ff7875', marginTop: '2px' }}>
-                  {formatINR(metrics.cancellations.revenue)} lost
+                <div style={{ fontSize: '0.75rem', color: '#d6c8ff', marginTop: '2px' }}>
+                  {formatINR(metrics.cancellations.revenue)} deducted
                 </div>
               </div>
 
-              <div style={{ background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+              <div style={{ background: 'rgba(186, 84, 245, 0.06)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.15)' }}>
+                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>
                   Returns / RTO Leakage
                 </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ba54f5' }}>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff' }}>
                   {metrics.returns.rate.toFixed(1)}%
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#d3adf7', marginTop: '2px' }}>
+                <div style={{ fontSize: '0.75rem', color: '#d6c8ff', marginTop: '2px' }}>
                   {formatINR(metrics.returns.revenue)} returned
                 </div>
               </div>
             </div>
 
-            <div style={{ background: 'rgba(0, 242, 196, 0.05)', border: '1px solid rgba(0, 242, 196, 0.2)', padding: '0.85rem 1rem', borderRadius: '8px', fontSize: '0.82rem', color: '#a7f3d0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <CheckCircle2 size={18} style={{ color: '#00f2c4', flexShrink: 0 }} />
-              <span>
-                Net Realization stands at <strong>{formatINR(metrics.net.revenue)}</strong> across <strong>{formatUnits(metrics.net.units)}</strong> fulfilled units.
-              </span>
+            <div style={{ background: 'rgba(0, 242, 196, 0.06)', border: '1px solid rgba(0, 242, 196, 0.25)', padding: '0.85rem 1rem', borderRadius: '8px', fontSize: '0.82rem', color: '#a7f3d0' }}>
+              Net Realization stands at <strong style={{ color: '#00f2c4' }}>{formatINR(metrics.net.revenue)}</strong> across <strong style={{ color: '#fff' }}>{formatUnits(metrics.net.units)}</strong> fulfilled units.
             </div>
           </div>
         </div>
       </div>
 
-      {/* Channel-Wise Financial Breakdown Table */}
+      {/* Channel-Wise Financial Breakdown Table - No Colorful Bullets */}
       <div className="finance-section-card">
         <div className="section-header">
           <h3>
-            <Package size={20} style={{ color: '#ba54f5' }} />
             Channel-Wise Financial Realization Breakdown
           </h3>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
             Gross Sales vs Deductions by Channel
           </span>
         </div>
@@ -473,38 +427,32 @@ export const FinanceSection = ({
             <tbody>
               {metrics.channelBreakdown.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                  <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: '#c4b5fd' }}>
                     No channel sales data available for {activeMonthLabel}.
                   </td>
                 </tr>
               ) : (
                 metrics.channelBreakdown.map((ch, idx) => (
                   <tr key={idx}>
-                    <td>
-                      <span className="channel-tag">
-                        <span style={{ 
-                          width: 8, 
-                          height: 8, 
-                          borderRadius: '50%', 
-                          background: getChannelColor ? getChannelColor(ch.channel) : '#1d8cf8' 
-                        }} />
-                        {ch.channel}
-                      </span>
+                    {/* Channel name without colorful bullets */}
+                    <td style={{ fontWeight: 600, color: '#ffffff' }}>
+                      {ch.channel}
                     </td>
-                    <td style={{ fontWeight: 600 }}>{formatINR(ch.grossRevenue)}</td>
-                    <td>{formatUnits(ch.grossUnits)}</td>
-                    <td style={{ color: '#ff4d4f' }}>
+                    <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatINR(ch.grossRevenue)}</td>
+                    <td style={{ color: '#e2d9fc' }}>{formatUnits(ch.grossUnits)}</td>
+                    <td style={{ color: '#d6c8ff' }}>
                       {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '₹0'}
                     </td>
-                    <td style={{ color: '#ff7875' }}>{formatUnits(ch.cancelledUnits)}</td>
-                    <td style={{ color: '#ba54f5' }}>
+                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.cancelledUnits)}</td>
+                    <td style={{ color: '#d6c8ff' }}>
                       {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '₹0'}
                     </td>
-                    <td style={{ color: '#d3adf7' }}>{formatUnits(ch.returnUnits)}</td>
+                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.returnUnits)}</td>
+                    {/* Net Revenue stays distinct in Cyan */}
                     <td style={{ fontWeight: 700, color: '#00f2c4' }}>
                       {formatINR(ch.netRevenue)}
                     </td>
-                    <td style={{ fontWeight: 600 }}>{formatUnits(ch.netUnits)}</td>
+                    <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatUnits(ch.netUnits)}</td>
                     <td>
                       <div className="progress-bar-bg">
                         <div 
@@ -512,7 +460,7 @@ export const FinanceSection = ({
                           style={{ width: `${Math.min(100, ch.realizationRate)}%` }} 
                         />
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.8rem', color: '#00f2c4' }}>
                         {ch.realizationRate.toFixed(1)}%
                       </span>
                     </td>
@@ -524,12 +472,12 @@ export const FinanceSection = ({
         </div>
       </div>
 
-      {/* Upload Modal (Admin Only) */}
-      {isModalOpen && userRole === 'admin' && (
+      {/* Admin Upload Cancellation Modal */}
+      {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Upload Cancellation File</h3>
+              <h3>Upload Cancellations ({primaryMonth} {selectedFY})</h3>
               <button 
                 className="modal-close-btn"
                 onClick={() => setIsModalOpen(false)}
@@ -538,27 +486,26 @@ export const FinanceSection = ({
               </button>
             </div>
 
-            <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              Upload your monthly cancelled orders file (e.g. <code>July-2026_CancelledOrders.xlsx</code>). 
-              Supported columns: <strong>Channel Name</strong>, <strong>Item Color</strong>, <strong>Units</strong>, <strong>New SP</strong>.
+            <p style={{ color: '#c4b5fd', fontSize: '0.9rem', marginBottom: '1.5rem', lineHeight: '1.5' }}>
+              Upload an Excel (.xlsx, .xls) or CSV sheet containing cancelled orders for <strong>{primaryMonth} {selectedFY}</strong>.
             </p>
 
             <div 
               className="upload-dropzone"
               onClick={() => fileInputRef.current?.click()}
             >
-              <UploadCloud size={36} style={{ color: '#00f2c4', margin: '0 auto 0.75rem auto' }} />
-              <div style={{ fontWeight: 600, color: '#fff', fontSize: '0.95rem' }}>
-                {isProcessing ? 'Processing spreadsheet...' : 'Click to browse or drag & drop'}
+              <UploadCloud size={40} style={{ color: '#ba54f5', margin: '0 auto 1rem auto' }} />
+              <div style={{ fontWeight: 600, color: '#fff', marginBottom: '0.5rem' }}>
+                {isProcessing ? 'Processing spreadsheet...' : 'Click to select cancellation spreadsheet'}
               </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                Supports .xlsx, .xls, .csv
+              <div style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
+                Supports .xlsx, .xls, .csv (e.g. July-2026_CancelledOrders.xlsx)
               </div>
               <input 
                 type="file" 
                 ref={fileInputRef} 
-                accept=".xlsx,.xls,.csv" 
                 style={{ display: 'none' }} 
+                accept=".xlsx,.xls,.csv" 
                 onChange={handleFileUpload}
                 disabled={isProcessing}
               />
@@ -568,37 +515,30 @@ export const FinanceSection = ({
               <div style={{ 
                 marginTop: '1.25rem', 
                 padding: '0.85rem 1rem', 
-                borderRadius: '10px', 
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
                 fontSize: '0.85rem',
                 background: uploadStatus.success ? 'rgba(0, 242, 196, 0.1)' : 'rgba(255, 77, 79, 0.1)',
                 border: `1px solid ${uploadStatus.success ? 'rgba(0, 242, 196, 0.3)' : 'rgba(255, 77, 79, 0.3)'}`,
-                color: uploadStatus.success ? '#00f2c4' : '#ff7875',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
+                color: uploadStatus.success ? '#00f2c4' : '#ff4d4f'
               }}>
                 {uploadStatus.success ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
                 <span>{uploadStatus.message}</span>
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <button
-                style={{ 
-                  background: 'transparent', 
-                  border: '1px solid rgba(255,255,255,0.15)', 
-                  color: 'var(--text-secondary)', 
-                  padding: '6px 12px', 
-                  borderRadius: '8px', 
-                  cursor: 'pointer',
-                  fontSize: '0.8rem' 
-                }}
+            <div style={{ marginTop: '1.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                className="finance-text-btn"
                 onClick={handleResetCancellations}
+                style={{ background: 'none', border: 'none', color: '#c4b5fd', fontSize: '0.82rem', cursor: 'pointer', textDecoration: 'underline' }}
               >
-                Reset to Default
+                Reset to default dataset
               </button>
 
-              <button
+              <button 
                 className="finance-action-btn"
                 onClick={() => setIsModalOpen(false)}
               >

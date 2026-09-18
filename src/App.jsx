@@ -4487,6 +4487,35 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
         {activePage === 'finance' ? (
             <div className="dashboard-content">
+              {/* Global Filters for Finance: Year, Month, Channel */}
+              <div className="filters-container" style={{ marginBottom: '1.5rem' }}>
+                <CustomSelect 
+                  value={selectedFY} 
+                  options={['2026']} 
+                  onChange={(val) => {
+                    setSelectedFY(val);
+                    setSelectedMonth([]);
+                    setSelectedDate('All');
+                  }} 
+                  placeholder="Select Year" 
+                />
+                <CustomMultiSelect 
+                  values={selectedMonth} 
+                  options={filterOptions.months} 
+                  onChange={(val) => {
+                    setSelectedMonth(val);
+                    setSelectedDate('All');
+                  }} 
+                  placeholder="All Months" 
+                />
+                <CustomMultiSelect 
+                  values={selectedChannels} 
+                  options={filterOptions.channels} 
+                  onChange={setSelectedChannels} 
+                  placeholder="All Channels" 
+                />
+              </div>
+
               <FinanceSection
                 salesData={filteredData}
                 returnData={filteredReturnData}
