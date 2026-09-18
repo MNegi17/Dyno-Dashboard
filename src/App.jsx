@@ -1,3 +1,4 @@
+import { FinanceSection } from './finance/FinanceSection';
 // Dyno Dashboard v1.1 - with MN branding
 import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import * as XLSX from 'xlsx';
@@ -1178,8 +1179,10 @@ Dyno Dashboard Auto-Mail`
                   channel_name: normalizeChannelName(row.channel_name),
                   item_color: row.item_color || 'Unknown',
                   return_qty: parseFloat(row.return_qty) || 0,
-                  division: row.division || 'Unknown',
-                  categories: row.categories || 'Unknown',
+                    division: row.division || 'Unknown',
+                    categories: row.categories || 'Unknown',
+                    return_type: row.return_type || row.returntype || 'Customer Return',
+                    price: parseFloat(row.price || row.total || row.unit_price || 0) || 0,
                   is_return: true
                 };
               }
@@ -2639,6 +2642,8 @@ Dyno Dashboard Auto-Mail`
         const itemColor = normalizedRow.item_color || normalizedRow.product_sku_code || normalizedRow.sku || 'Unknown';
         const divisionVal = normalizedRow.division || 'Unknown';
         const categoryVal = normalizedRow.category || normalizedRow.categories || 'Unknown';
+          const returnTypeVal = normalizedRow.return_type || normalizedRow.returntype || 'Customer Return';
+          const returnPriceVal = parseFloat(normalizedRow.total || normalizedRow.unit_price || normalizedRow.sales || normalizedRow.price || 0) || 0;
 
         return {
           parsedDate: dateObj ? dateObj.toISOString() : null,
@@ -2650,7 +2655,9 @@ Dyno Dashboard Auto-Mail`
           return_qty: returnQty,
           division: divisionVal,
           categories: categoryVal,
-          is_return: true
+            return_type: returnTypeVal,
+            price: returnPriceVal,
+            is_return: true
         };
       });
 
@@ -4332,6 +4339,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Home size={20} />
               <span>Dashboard</span>
             </div>
+              <div className={`nav-item ${activePage === 'finance' ? 'active' : ''}`} onClick={() => { setActivePage('finance'); setIsMobileMenuOpen(false); }}>
+                <DollarSign size={20} />
+                <span>Finance</span>
+              </div>
             <div className={`nav-item ${activePage === 'trends' ? 'active' : ''}`} onClick={() => { setActivePage('trends'); setIsMobileMenuOpen(false); }}>
               <BarChart2 size={20} />
               <span>Trends</span>
@@ -4396,7 +4407,8 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             <h1>
               {activePage === 'raw_files' && 'Raw Files Management'}
               {activePage === 'reco' && 'Sales Reconciliation'}
-              {activePage === 'dashboard' && 'Sales Overview'}
+              {activePage === 'finance' && 'Finance & Net Realization'}
+                {activePage === 'dashboard' && 'Sales Overview'}
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
               {activePage === 'product_level' && 'Product Level Analysis'}
@@ -4470,7 +4482,16 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </header>
 
-        {activePage === 'raw_files' && userRole === 'admin' ? (
+        {activePage === 'finance' ? (
+            <div className="dashboard-content">
+              <FinanceSection
+                salesData={data}
+                returnData={returnData}
+                availableMonths={filterOptions.months}
+                getChannelColor={getChannelColor}
+              />
+            </div>
+          ) : activePage === 'raw_files' && userRole === 'admin' ? (
           <div className="dashboard-content">
             <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', marginBottom: '2rem' }}>
               <div className="card" style={{ marginBottom: 0 }}>
