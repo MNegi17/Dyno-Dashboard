@@ -491,16 +491,29 @@ export const FinanceSection = ({
                   tickFormatter={(v) => '₹' + (v / 100000).toFixed(1) + 'L'}
                 />
                 <Tooltip 
-                  contentStyle={{ 
-                    background: '#1a162b', 
-                    border: '1px solid rgba(186, 84, 245, 0.25)', 
-                    borderRadius: '8px',
-                    color: '#fff'
+                  cursor={{ fill: 'rgba(186, 84, 245, 0.08)' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const entry = payload[0].payload;
+                      return (
+                        <div style={{
+                          background: '#1a162b',
+                          border: '1px solid rgba(186, 84, 245, 0.35)',
+                          borderRadius: '8px',
+                          padding: '8px 14px',
+                          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)'
+                        }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', marginBottom: '4px' }}>
+                            {entry.name}
+                          </div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 700, color: entry.fill || '#ffffff' }}>
+                            {formatINR(entry.displayVal)}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
                   }}
-                  formatter={(value, name, item) => [
-                    formatINR(item.payload.displayVal), 
-                    item.payload.name
-                  ]}
                 />
                 <Bar dataKey="value" radius={[6, 6, 0, 0]}>
                   {metrics.waterfallData.map((entry, idx) => (

@@ -488,3 +488,19 @@
   border-color: #ba54f5;
   background: rgba(186, 84, 245, 0.08);
 }
+
+/* Ensure all recharts tooltip text is crisp white */
+.recharts-tooltip-item,
+.recharts-tooltip-item-value,
+.recharts-tooltip-item-name {
+  color: #ffffff !important;
+}
+.recharts-tooltip-label {
+  color: #c4b5fd !important;
+}
+.recharts-default-tooltip {
+  background-color: #1a162b !important;
+  border: 1px solid rgba(186, 84, 245, 0.35) !important;
+  border-radius: 8px !important;
+  color: #ffffff !important;
+}
