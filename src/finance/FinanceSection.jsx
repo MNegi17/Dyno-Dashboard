@@ -6,7 +6,9 @@ import {
   X, 
   BarChart3, 
   AlertCircle,
-  Package
+  Package,
+  SlidersHorizontal,
+  ChevronDown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -24,6 +26,13 @@ import {
   clearCancellations 
 } from './cancellationStorage';
 import { calculateFinanceMetrics } from './financeMetrics.js';
+import { 
+  loadMarketingRates, 
+  saveMarketingRates, 
+  resetMarketingRates, 
+  resolveChannelRate, 
+  DEFAULT_CHANNEL_RATES 
+} from './marketingRatesStorage.js';
 import './FinanceSection.css';
 
 const formatINR = (val) => {
@@ -66,6 +75,12 @@ export const FinanceSection = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Marketing Rates State
+  const [marketingRates, setMarketingRates] = useState(() => loadMarketingRates());
+  const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
+  const [editRatesDraft, setEditRatesDraft] = useState({});
+  const [ratesSaveSuccess, setRatesSaveSuccess] = useState(false);
+
   // Load cancellations when primary month or year changes
   useEffect(() => {
     const loaded = loadCancellations(primaryMonth, selectedFY);
@@ -82,6 +97,76 @@ export const FinanceSection = ({
       selectedChannels
     });
   }, [salesData, returnData, cancellationsData, allSalesData, selectedChannels]);
+
+  // Determine active channel for Marketing tiles (syncs with top channel filter)
+  const activeTopChannel = useMemo(() => {
+    if (Array.isArray(selectedChannels) && selectedChannels.length === 1) {
+      return selectedChannels[0];
+    }
+    return 'All';
+  }, [selectedChannels]);
+
+  const [selectedMarketingChannel, setSelectedMarketingChannel] = useState(activeTopChannel);
+
+  // Sync internal channel selector when the top filter changes
+  useEffect(() => {
+    setSelectedMarketingChannel(activeTopChannel);
+  }, [activeTopChannel]);
+
+  // Resolve active rates (Margin, Marketing, Logistics)
+  const activeRates = useMemo(() => {
+    return resolveChannelRate(selectedMarketingChannel, marketingRates);
+  }, [selectedMarketingChannel, marketingRates]);
+
+  // Revenue base for computing the Rupee amounts for this channel
+  const activeRevenueBase = useMemo(() => {
+    if (selectedMarketingChannel !== 'All' && selectedMarketingChannel !== 'All Channels') {
+      const chItem = metrics.channelBreakdown.find(
+        c => c.channel.toUpperCase() === selectedMarketingChannel.toUpperCase()
+      );
+      if (chItem) {
+        return chItem.netRevenue > 0 ? chItem.netRevenue : chItem.grossRevenue;
+      }
+    }
+    return metrics.net.revenue > 0 ? metrics.net.revenue : metrics.gross.revenue;
+  }, [selectedMarketingChannel, metrics]);
+
+  const computedMarginINR = Math.round((activeRevenueBase * (activeRates.margin || 0)) / 100);
+  const computedMarketingINR = Math.round((activeRevenueBase * (activeRates.marketing || 0)) / 100);
+  const computedLogisticsINR = Math.round((activeRevenueBase * (activeRates.logistics || 0)) / 100);
+
+  // Available channel list for the marketing dropdown/pills
+  const availableChannelOptions = useMemo(() => {
+    const keys = Object.keys(marketingRates).filter(k => k !== 'All');
+    return ['All', ...keys];
+  }, [marketingRates]);
+
+  // Open Edit Rates modal with current values
+  const handleOpenRatesModal = () => {
+    setEditRatesDraft(JSON.parse(JSON.stringify(marketingRates)));
+    setRatesSaveSuccess(false);
+    setIsRatesModalOpen(true);
+  };
+
+  // Save updated rates from modal
+  const handleSaveRates = () => {
+    saveMarketingRates(editRatesDraft);
+    setMarketingRates(editRatesDraft);
+    setRatesSaveSuccess(true);
+    setTimeout(() => {
+      setIsRatesModalOpen(false);
+      setRatesSaveSuccess(false);
+    }, 800);
+  };
+
+  // Reset rates to factory defaults
+  const handleResetRates = () => {
+    resetMarketingRates();
+    const defaults = { ...DEFAULT_CHANNEL_RATES };
+    setMarketingRates(defaults);
+    setEditRatesDraft(defaults);
+    setRatesSaveSuccess(true);
+  };
 
   // Handle cancellation file upload
   const handleFileUpload = async (e) => {
@@ -289,6 +374,95 @@ export const FinanceSection = ({
         </div>
       </div>
 
+      {/* 3 Marketing & Unit Economics Tiles (Margin, Marketing, Logistics) */}
+      <div className="marketing-section">
+        <div className="marketing-header-row">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1rem', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.3px' }}>
+              Marketing & Unit Economics
+            </span>
+            <span className="badge-pill badge-purple-clean">
+              Channel: <strong style={{ color: '#fff', marginLeft: '4px' }}>{activeRates.channelName}</strong>
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {/* Quick Channel Preview Selector */}
+            <div className="marketing-channel-select-wrapper">
+              <span style={{ fontSize: '0.78rem', color: '#c4b5fd' }}>View Channel:</span>
+              <select
+                className="marketing-channel-dropdown"
+                value={selectedMarketingChannel}
+                onChange={(e) => setSelectedMarketingChannel(e.target.value)}
+              >
+                {availableChannelOptions.map(ch => (
+                  <option key={ch} value={ch}>{ch === 'All' ? 'All Channels (Blended)' : ch}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Admin: Edit Rates Modal Trigger */}
+            {userRole === 'admin' && (
+              <button 
+                className="marketing-edit-btn"
+                onClick={handleOpenRatesModal}
+                title="Edit pre-filled Margin, Marketing, and Logistics rates per channel"
+              >
+                <SlidersHorizontal size={14} />
+                Edit Rates
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="marketing-tiles-grid">
+          {/* Tile 1: Margin */}
+          <div className="marketing-card">
+            <div className="marketing-card-top">
+              <span className="marketing-card-label">Margin</span>
+              <span className="badge-pill badge-purple-clean">{activeRates.margin}% Target</span>
+            </div>
+            <div className="marketing-card-main">
+              <div className="marketing-number">{activeRates.margin}%</div>
+              <div className="marketing-calculated-val">{formatINR(computedMarginINR)}</div>
+            </div>
+            <div className="marketing-card-footer">
+              <span className="marketing-footer-note">Gross Margin for {activeRates.channelName}</span>
+            </div>
+          </div>
+
+          {/* Tile 2: Marketing */}
+          <div className="marketing-card">
+            <div className="marketing-card-top">
+              <span className="marketing-card-label">Marketing</span>
+              <span className="badge-pill badge-purple-clean">{activeRates.marketing}% Ad Spend</span>
+            </div>
+            <div className="marketing-card-main">
+              <div className="marketing-number">{activeRates.marketing}%</div>
+              <div className="marketing-calculated-val">{formatINR(computedMarketingINR)}</div>
+            </div>
+            <div className="marketing-card-footer">
+              <span className="marketing-footer-note">Marketing allocation on net sales</span>
+            </div>
+          </div>
+
+          {/* Tile 3: Logistics */}
+          <div className="marketing-card">
+            <div className="marketing-card-top">
+              <span className="marketing-card-label">Logistics</span>
+              <span className="badge-pill badge-purple-clean">{activeRates.logistics}% Fulfillment</span>
+            </div>
+            <div className="marketing-card-main">
+              <div className="marketing-number">{activeRates.logistics}%</div>
+              <div className="marketing-calculated-val">{formatINR(computedLogisticsINR)}</div>
+            </div>
+            <div className="marketing-card-footer">
+              <span className="marketing-footer-note">Shipping & logistics allocation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Visual Waterfall Chart & Health Summary */}
       <div className="finance-content-row split">
         {/* Waterfall / Deduction Flow Chart */}
@@ -471,6 +645,125 @@ export const FinanceSection = ({
           </table>
         </div>
       </div>
+
+      {/* Edit Marketing & Unit Economics Rates Modal */}
+      {isRatesModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsRatesModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Edit Channel Economics Rates</h3>
+              <button className="modal-close-btn" onClick={() => setIsRatesModalOpen(false)}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <p style={{ color: '#c4b5fd', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
+              Update pre-filled Margin, Marketing, and Logistics percentage rates for each sales channel. Changes are saved automatically.
+            </p>
+
+            <div style={{ maxHeight: '340px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(186, 84, 245, 0.2)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(186, 84, 245, 0.2)' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', color: '#c4b5fd' }}>Channel</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Margin %</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Marketing %</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Logistics %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.keys(editRatesDraft).map((chKey) => {
+                    const row = editRatesDraft[chKey] || { margin: 0, marketing: 0, logistics: 0 };
+                    return (
+                      <tr key={chKey} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#fff' }}>
+                          {chKey === 'All' ? 'All Channels (Default)' : chKey}
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input 
+                            type="number" 
+                            step="0.1"
+                            value={row.margin}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setEditRatesDraft(prev => ({
+                                ...prev,
+                                [chKey]: { ...prev[chKey], margin: val }
+                              }));
+                            }}
+                            className="rate-edit-input"
+                          />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input 
+                            type="number" 
+                            step="0.1"
+                            value={row.marketing}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setEditRatesDraft(prev => ({
+                                ...prev,
+                                [chKey]: { ...prev[chKey], marketing: val }
+                              }));
+                            }}
+                            className="rate-edit-input"
+                          />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                          <input 
+                            type="number" 
+                            step="0.1"
+                            value={row.logistics}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setEditRatesDraft(prev => ({
+                                ...prev,
+                                [chKey]: { ...prev[chKey], logistics: val }
+                              }));
+                            }}
+                            className="rate-edit-input"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {ratesSaveSuccess && (
+              <div style={{ marginTop: '1rem', color: '#00f2c4', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <CheckCircle2 size={16} /> Rates successfully updated and saved!
+              </div>
+            )}
+
+            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button 
+                className="finance-text-btn"
+                onClick={handleResetRates}
+                style={{ background: 'none', border: 'none', color: '#c4b5fd', fontSize: '0.82rem', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Reset to Defaults
+              </button>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
+                  onClick={() => setIsRatesModalOpen(false)}
+                  style={{ background: 'transparent', border: '1px solid rgba(186, 84, 245, 0.3)', color: '#c4b5fd', padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="finance-action-btn"
+                  onClick={handleSaveRates}
+                >
+                  Save Rates
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin Upload Cancellation Modal */}
       {isModalOpen && (

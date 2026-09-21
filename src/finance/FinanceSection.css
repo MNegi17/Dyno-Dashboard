@@ -178,6 +178,161 @@
   border: 1px solid rgba(186, 84, 245, 0.25);
 }
 
+/* =========================================================
+   Marketing & Unit Economics Section (Margin, Marketing, Logistics)
+   ========================================================= */
+.marketing-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: rgba(30, 30, 46, 0.4);
+  border: 1px solid rgba(186, 84, 245, 0.12);
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+}
+
+.marketing-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.marketing-channel-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.marketing-channel-dropdown {
+  background: #1a162b;
+  color: #ffffff;
+  border: 1px solid rgba(186, 84, 245, 0.25);
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.marketing-channel-dropdown:focus {
+  border-color: #ba54f5;
+}
+
+.marketing-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(186, 84, 245, 0.15);
+  color: #e2d9fc;
+  border: 1px solid rgba(186, 84, 245, 0.3);
+  padding: 0.35rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.marketing-edit-btn:hover {
+  background: rgba(186, 84, 245, 0.25);
+  color: #fff;
+  border-color: #ba54f5;
+}
+
+.marketing-tiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+.marketing-card {
+  background: rgba(26, 22, 43, 0.7);
+  border: 1px solid rgba(186, 84, 245, 0.16);
+  border-radius: 14px;
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.marketing-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(186, 84, 245, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.marketing-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.marketing-card-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #c4b5fd;
+}
+
+.marketing-card-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.marketing-number {
+  font-size: 1.9rem;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+
+.marketing-calculated-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #e2d9fc;
+}
+
+.marketing-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgba(186, 84, 245, 0.08);
+  padding-top: 0.6rem;
+}
+
+.marketing-footer-note {
+  font-size: 0.75rem;
+  color: #a78bfa;
+}
+
+.rate-edit-input {
+  width: 80px;
+  background: #151124;
+  color: #ffffff;
+  border: 1px solid rgba(186, 84, 245, 0.3);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  text-align: center;
+  outline: none;
+}
+
+.rate-edit-input:focus {
+  border-color: #ba54f5;
+  box-shadow: 0 0 6px rgba(186, 84, 245, 0.4);
+}
+
 /* Visual Chart & Table Section */
 .finance-content-row {
   display: grid;
