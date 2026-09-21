@@ -225,7 +225,42 @@ export const FinanceSection = ({
 
       {/* Main Metric Cards Grid (4 Core Tiles) */}
       <div className="finance-grid">
-        {/* Tile 1: NET REVENUE & UNITS (Main Hero Tile - Left Distinct as Requested) */}
+        {/* Tile 1: GROSS REVENUE TILE */}
+        <div className="finance-card">
+          <div className="card-top-row">
+            <div className="card-title-group">
+              <span className="card-label">Gross Revenue</span>
+              <span className="card-sub-info">Total Order Sales</span>
+            </div>
+          </div>
+
+          <div className="card-main-metric">
+            <div className="metric-number">
+              {formatINR(metrics.gross.revenue)}
+            </div>
+            <div className="metric-subtitle">
+              <span>{formatUnits(metrics.gross.units)} Total Units</span>
+              <span className="badge-pill badge-purple-clean">Sales Only</span>
+            </div>
+          </div>
+
+          <div className="card-bottom-pills">
+            <div className="submetric-row">
+              <span className="submetric-label">Gross ASP:</span>
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
+                {formatINR(metrics.gross.asp)}
+              </span>
+            </div>
+            <div className="submetric-row">
+              <span className="submetric-label">Active Channels:</span>
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
+                {metrics.channelBreakdown.length} Marketplaces
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tile 2: NET REVENUE & UNITS (Main Hero Tile) */}
         <div className="finance-card hero-net">
           <div className="card-top-row">
             <div className="card-title-group">
@@ -264,83 +299,11 @@ export const FinanceSection = ({
           </div>
         </div>
 
-        {/* Tile 2: GROSS REVENUE TILE (Clean Purple & White-Purple Theme) */}
+        {/* Tile 3: RETURNS & RTO TILE */}
         <div className="finance-card">
           <div className="card-top-row">
             <div className="card-title-group">
-              <span className="card-label">Gross Revenue</span>
-              <span className="card-sub-info">Total Order Sales</span>
-            </div>
-          </div>
-
-          <div className="card-main-metric">
-            <div className="metric-number">
-              {formatINR(metrics.gross.revenue)}
-            </div>
-            <div className="metric-subtitle">
-              <span>{formatUnits(metrics.gross.units)} Total Units</span>
-              <span className="badge-pill badge-purple-clean">Sales Only</span>
-            </div>
-          </div>
-
-          <div className="card-bottom-pills">
-            <div className="submetric-row">
-              <span className="submetric-label">Gross ASP:</span>
-              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
-                {formatINR(metrics.gross.asp)}
-              </span>
-            </div>
-            <div className="submetric-row">
-              <span className="submetric-label">Active Channels:</span>
-              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
-                {metrics.channelBreakdown.length} Marketplaces
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tile 3: CANCELLATIONS TILE (Clean Purple & White-Purple Theme) */}
-        <div className="finance-card">
-          <div className="card-top-row">
-            <div className="card-title-group">
-              <span className="card-label">Cancellations</span>
-              <span className="card-sub-info">Pre-dispatch Cancelled</span>
-            </div>
-          </div>
-
-          <div className="card-main-metric">
-            <div className="metric-number">
-              {formatINR(metrics.cancellations.revenue)}
-            </div>
-            <div className="metric-subtitle">
-              <span>{formatUnits(metrics.cancellations.units)} Cancelled Units</span>
-              <span className="badge-pill badge-purple-clean">
-                {metrics.cancellations.rate.toFixed(1)}% Rate
-              </span>
-            </div>
-          </div>
-
-          <div className="card-bottom-pills">
-            <div className="submetric-row">
-              <span className="submetric-label">Dataset:</span>
-              <span className="submetric-val" style={{ fontSize: '0.78rem', color: '#d6c8ff' }}>
-                {cancellationsData.length > 0 ? `${formatUnits(metrics.cancellations.units)} units (${cancellationsData.length} records)` : 'No cancellation file'}
-              </span>
-            </div>
-            <div className="submetric-row">
-              <span className="submetric-label">Impact on Gross:</span>
-              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
-                - {formatINR(metrics.cancellations.revenue)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tile 4: RETURNS & RTO TILE (Clean Purple & White-Purple Theme) */}
-        <div className="finance-card">
-          <div className="card-top-row">
-            <div className="card-title-group">
-              <span className="card-label">Returns & RTO</span>
+              <span className="card-label">Returns</span>
               <span className="card-sub-info">Customer Return + Courier RTO</span>
             </div>
           </div>
@@ -368,6 +331,43 @@ export const FinanceSection = ({
               <span className="submetric-label">Courier Return (RTO):</span>
               <span className="submetric-val" style={{ color: '#d6c8ff' }}>
                 {formatUnits(metrics.returns.rtoUnits)} units ({formatINR(metrics.returns.rtoRevenue)})
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Tile 4: CANCELLATION TILE */}
+        <div className="finance-card">
+          <div className="card-top-row">
+            <div className="card-title-group">
+              <span className="card-label">Cancellation</span>
+              <span className="card-sub-info">Pre-dispatch Cancelled</span>
+            </div>
+          </div>
+
+          <div className="card-main-metric">
+            <div className="metric-number">
+              {formatINR(metrics.cancellations.revenue)}
+            </div>
+            <div className="metric-subtitle">
+              <span>{formatUnits(metrics.cancellations.units)} Cancelled Units</span>
+              <span className="badge-pill badge-purple-clean">
+                {metrics.cancellations.rate.toFixed(1)}% Rate
+              </span>
+            </div>
+          </div>
+
+          <div className="card-bottom-pills">
+            <div className="submetric-row">
+              <span className="submetric-label">Dataset:</span>
+              <span className="submetric-val" style={{ fontSize: '0.78rem', color: '#d6c8ff' }}>
+                {cancellationsData.length > 0 ? `${formatUnits(metrics.cancellations.units)} units (${cancellationsData.length} records)` : 'No cancellation file'}
+              </span>
+            </div>
+            <div className="submetric-row">
+              <span className="submetric-label">Impact on Gross:</span>
+              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
+                - {formatINR(metrics.cancellations.revenue)}
               </span>
             </div>
           </div>
@@ -472,7 +472,7 @@ export const FinanceSection = ({
               Revenue Realization Bridge ({activeMonthLabel})
             </h3>
             <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
-              Gross → Deductions → Net
+              Gross → Net → Returns → Cancellation
             </span>
           </div>
 
@@ -589,12 +589,12 @@ export const FinanceSection = ({
                 <th>Channel</th>
                 <th>Gross Sales (₹)</th>
                 <th>Gross Units</th>
-                <th>Cancelled (₹)</th>
-                <th>Cancelled Units</th>
-                <th>Returns / RTO (₹)</th>
-                <th>Return Units</th>
                 <th>Net Revenue (₹)</th>
                 <th>Net Units</th>
+                <th>Returns (₹)</th>
+                <th>Return Units</th>
+                <th>Cancellation (₹)</th>
+                <th>Cancelled Units</th>
                 <th>Realization %</th>
               </tr>
             </thead>
@@ -608,25 +608,23 @@ export const FinanceSection = ({
               ) : (
                 metrics.channelBreakdown.map((ch, idx) => (
                   <tr key={idx}>
-                    {/* Channel name without colorful bullets */}
                     <td style={{ fontWeight: 600, color: '#ffffff' }}>
                       {ch.channel}
                     </td>
                     <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatINR(ch.grossRevenue)}</td>
                     <td style={{ color: '#e2d9fc' }}>{formatUnits(ch.grossUnits)}</td>
-                    <td style={{ color: '#d6c8ff' }}>
-                      {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '₹0'}
-                    </td>
-                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.cancelledUnits)}</td>
-                    <td style={{ color: '#d6c8ff' }}>
-                      {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '₹0'}
-                    </td>
-                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.returnUnits)}</td>
-                    {/* Net Revenue stays distinct in Cyan */}
                     <td style={{ fontWeight: 700, color: '#00f2c4' }}>
                       {formatINR(ch.netRevenue)}
                     </td>
                     <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatUnits(ch.netUnits)}</td>
+                    <td style={{ color: '#d6c8ff' }}>
+                      {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '₹0'}
+                    </td>
+                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.returnUnits)}</td>
+                    <td style={{ color: '#d6c8ff' }}>
+                      {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '₹0'}
+                    </td>
+                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.cancelledUnits)}</td>
                     <td>
                       <div className="progress-bar-bg">
                         <div 
