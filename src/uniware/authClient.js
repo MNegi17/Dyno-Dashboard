@@ -2,7 +2,7 @@ const getBaseUrl = () => typeof window !== 'undefined' ? '/api/uniware' : 'https
 
 const UNIWARE_CONFIG = {
   username: 'ecommerce@purpleunited.in',
-  password: 'Toothless@2024'
+  password: 'Toothless@2024@'
 };
 
 let tokenCache = null;

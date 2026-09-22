@@ -20,7 +20,7 @@ ADMIN_PASSWORD = "Manan@dyno@17"
 
 UNIWARE_URL = "https://purpleunited.unicommerce.com"
 UNIWARE_USER = "ecommerce@purpleunited.in"
-UNIWARE_PASS = "Toothless@2024"
+UNIWARE_PASS = "Toothless@2024@"
 
 # Global token cache
 _token_cache = {"token": None, "expires_at": 0}
