@@ -575,7 +575,8 @@ Dyno Dashboard Auto-Mail`
     const interval = setInterval(async () => {
       try {
         const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-        const backendUrl = isLocal ? 'http://localhost:5001' : 'https://backend-production-bbaa.up.railway.app';
+        const isRailway = typeof window !== 'undefined' && window.location.hostname.includes('railway.app');
+      const backendUrl = isLocal ? 'http://localhost:5001' : (isRailway ? '' : 'https://backend-production-bbaa.up.railway.app');
         let synced = false;
         try {
           const resp = await fetch(`${backendUrl}/api/sync`, { method: 'POST' });
@@ -656,7 +657,7 @@ Dyno Dashboard Auto-Mail`
 
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
         const resp = await fetch(`${backendUrl}/api/sync`, { method: 'POST', signal: controller.signal });
         clearTimeout(timeoutId);
         if (resp.ok) {

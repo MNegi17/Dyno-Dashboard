@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 @app.route('/api/generate_report', methods=['POST'])
 def generate_report():
@@ -176,7 +176,7 @@ def generate_report():
                         cell.number_format = '#,##0.0'
                     elif col_header == 'Revenue':
                         cell.alignment = Alignment(horizontal="right", vertical="center")
-                        cell.number_format = '₹#,##0.00'
+                        cell.number_format = 'â‚¹#,##0.00'
 
                 # Apply conditional row coloring on 'Alarming Inventory' sheet
                 if sheet_name == 'Alarming Inventory':
@@ -211,7 +211,7 @@ def generate_report():
                     val = ws.cell(row=r, column=col).value
                     if val is not None:
                         # Account for currency symbol width padding
-                        val_str = f"₹{str(val)}" if ws.cell(row=1, column=col).value == 'Revenue' and r > 1 else str(val)
+                        val_str = f"â‚¹{str(val)}" if ws.cell(row=1, column=col).value == 'Revenue' and r > 1 else str(val)
                         if len(val_str) > max_len:
                             max_len = len(val_str)
                 ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
@@ -410,7 +410,7 @@ def generate_weekly_business_report():
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 
                 if "Value" in col_name:
-                    cell.number_format = '₹#,##0.00'
+                    cell.number_format = 'â‚¹#,##0.00'
                 else:
                     cell.number_format = '#,##0'
             current_row += 1
@@ -436,7 +436,7 @@ def generate_weekly_business_report():
             cell.alignment = Alignment(horizontal="right", vertical="center")
             
             if col_idx in [3, 6, 9, 12, 15, 18]:
-                cell.number_format = '₹#,##0.00'
+                cell.number_format = 'â‚¹#,##0.00'
             else:
                 cell.number_format = '#,##0'
 
@@ -450,7 +450,7 @@ def generate_weekly_business_report():
                     if val_str.startswith('='):
                         val_str = "12,345.00"
                     elif col_idx in [3, 6, 9, 12, 15, 18] and r >= 3:
-                        val_str = f"₹{val_str}"
+                        val_str = f"â‚¹{val_str}"
                     if len(val_str) > max_len:
                         max_len = len(val_str)
             ws.column_dimensions[col_letter].width = max(max_len + 3, 11)

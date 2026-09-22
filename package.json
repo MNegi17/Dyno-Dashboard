@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^3.0.3",
     "jimp": "^1.6.1",
     "lucide-react": "^1.14.0",
     "react": "^19.2.5",

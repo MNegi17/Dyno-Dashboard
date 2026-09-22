@@ -1,0 +1,9 @@
+node_modules
+.git
+dist
+dist-ssr
+*.xlsx
+~$*.xlsx
+.env
+.env.*
+.vscode
