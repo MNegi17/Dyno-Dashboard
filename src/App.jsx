@@ -2848,23 +2848,58 @@ Dyno Dashboard Auto-Mail`
       categories.add(row.categories || row.category || 'Unknown');
     });
 
-    const monthOrder = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    
+    const fyMonthOrder = [
+      "April", "May", "June", "July", "August", "September", "October", "November", "December",
+      "January", "February", "March"
+    ];
+
+    const monthLatestDateMap = new Map();
     const dateMap = new Map();
     data.forEach(row => {
-      if(row.parsedDate && row.formattedDate) {
-        dateMap.set(row.formattedDate, row.parsedDate.getTime());
+      if (row.parsedDate) {
+        const t = row.parsedDate.getTime();
+        if (row.formattedDate) {
+          dateMap.set(row.formattedDate, t);
+        }
+        if (row.monthName) {
+          const prev = monthLatestDateMap.get(row.monthName) || 0;
+          if (t > prev) monthLatestDateMap.set(row.monthName, t);
+        }
       }
     });
 
+    // Dates descending (latest date on top)
     const sortedDates = Array.from(dates).sort((a,b) => {
       if (a === 'Unknown') return 1;
       if (b === 'Unknown') return -1;
-      return (dateMap.get(a) || 0) - (dateMap.get(b) || 0);
+      const timeA = dateMap.get(a) || 0;
+      const timeB = dateMap.get(b) || 0;
+      if (timeA && timeB && timeA !== timeB) {
+        return timeB - timeA;
+      }
+      const matchA = a.match(/^(\d+)\s+([A-Za-z]+)/);
+      const matchB = b.match(/^(\d+)\s+([A-Za-z]+)/);
+      if (matchA && matchB) {
+        const mIdxA = fyMonthOrder.indexOf(matchA[2]);
+        const mIdxB = fyMonthOrder.indexOf(matchB[2]);
+        if (mIdxA !== mIdxB) return mIdxB - mIdxA;
+        return parseInt(matchB[1], 10) - parseInt(matchA[1], 10);
+      }
+      return b.localeCompare(a);
+    });
+
+    // Months descending (latest month on top)
+    const sortedMonths = Array.from(months).sort((a, b) => {
+      const timeA = monthLatestDateMap.get(a) || 0;
+      const timeB = monthLatestDateMap.get(b) || 0;
+      if (timeA && timeB && timeA !== timeB) {
+        return timeB - timeA;
+      }
+      return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
     });
 
     return {
-      months: Array.from(months).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b)),
+      months: sortedMonths,
       dates: sortedDates,
       divisions: Array.from(divisions).sort(),
       channels: Array.from(channels).sort(),
@@ -2873,8 +2908,7 @@ Dyno Dashboard Auto-Mail`
   }, [data, selectedMonth, selectedFY]);
 
   const goalsMonths = useMemo(() => [
-    "April", "May", "June", "July", "August", "September", "October", "November", "December",
-    "January", "February", "March"
+    "March", "February", "January", "December", "November", "October", "September", "August", "July", "June", "May", "April"
   ], []);
 
   const filteredData = useMemo(() => {
@@ -3005,23 +3039,58 @@ Dyno Dashboard Auto-Mail`
       categories.add(row.categories || 'Unknown');
     });
 
-    const monthOrder = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    
+    const fyMonthOrder = [
+      "April", "May", "June", "July", "August", "September", "October", "November", "December",
+      "January", "February", "March"
+    ];
+
+    const monthLatestDateMap = new Map();
     const dateMap = new Map();
     fy25Data.forEach(row => {
-      if(row.parsedDate && row.formattedDate) {
-        dateMap.set(row.formattedDate, row.parsedDate.getTime());
+      if (row.parsedDate) {
+        const t = row.parsedDate.getTime();
+        if (row.formattedDate) {
+          dateMap.set(row.formattedDate, t);
+        }
+        if (row.monthName) {
+          const prev = monthLatestDateMap.get(row.monthName) || 0;
+          if (t > prev) monthLatestDateMap.set(row.monthName, t);
+        }
       }
     });
 
+    // Dates descending (latest date on top)
     const sortedDates = Array.from(dates).sort((a,b) => {
       if (a === 'Unknown') return 1;
       if (b === 'Unknown') return -1;
-      return (dateMap.get(a) || 0) - (dateMap.get(b) || 0);
+      const timeA = dateMap.get(a) || 0;
+      const timeB = dateMap.get(b) || 0;
+      if (timeA && timeB && timeA !== timeB) {
+        return timeB - timeA;
+      }
+      const matchA = a.match(/^(\d+)\s+([A-Za-z]+)/);
+      const matchB = b.match(/^(\d+)\s+([A-Za-z]+)/);
+      if (matchA && matchB) {
+        const mIdxA = fyMonthOrder.indexOf(matchA[2]);
+        const mIdxB = fyMonthOrder.indexOf(matchB[2]);
+        if (mIdxA !== mIdxB) return mIdxB - mIdxA;
+        return parseInt(matchB[1], 10) - parseInt(matchA[1], 10);
+      }
+      return b.localeCompare(a);
+    });
+
+    // Months descending (latest month on top)
+    const sortedMonths = Array.from(months).sort((a, b) => {
+      const timeA = monthLatestDateMap.get(a) || 0;
+      const timeB = monthLatestDateMap.get(b) || 0;
+      if (timeA && timeB && timeA !== timeB) {
+        return timeB - timeA;
+      }
+      return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
     });
 
     return {
-      months: Array.from(months).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b)),
+      months: sortedMonths,
       dates: sortedDates,
       divisions: Array.from(divisions).sort(),
       channels: Array.from(channels).sort(),
@@ -5597,7 +5666,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Select Month to Reconcile</label>
                       <CustomSelect 
                         value={recoMonth} 
-                        options={monthsList} 
+                        options={[...monthsList].reverse()}
                         onChange={(val) => {
                           setRecoMonth(val);
                           setRecoError('');
