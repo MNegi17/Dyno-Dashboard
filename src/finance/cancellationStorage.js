@@ -1,88 +1,182 @@
 import * as XLSX from 'xlsx';
-import defaultJulyCancellations from '../data/july_2026_cancellations.json';
+import defaultSeedCancellations from '../data/cancellations_seed.json';
 import { normalizeChannelName } from '../sales/channelNormalization';
 
-const STORAGE_KEY_PREFIX = 'dyno_cancellations_';
+const REGISTRY_STORAGE_KEY = 'dyno_cancellations_registry_v2';
 
 /**
- * Normalizes a month key string (e.g. 'July', 'July 2026', 'jul')
+ * Retrieves the complete registry of cancellations (seed + localStorage).
  */
-export const getMonthKey = (month, year = '2026') => {
-  if (!month) return 'all';
-  const cleanMonth = String(month).trim().toLowerCase();
-  return `${cleanMonth}_${year}`;
-};
-
-/**
- * Load cancellations for a given month and year.
- * Defaults to the pre-loaded July 2026 dataset if no custom data exists in localStorage for July.
- */
-export const loadCancellations = (month = 'July', year = '2026') => {
+export const getAllCancellationsRegistry = () => {
   try {
-    const key = `${STORAGE_KEY_PREFIX}${getMonthKey(month, year)}`;
-    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(REGISTRY_STORAGE_KEY) : null;
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
       }
     }
-
-    // Default seed for July
-    const mLower = String(month).toLowerCase();
-    if (mLower === 'july' || mLower === 'jul') {
-      return normalizeCancellationRows(defaultJulyCancellations, 'July', year);
-    }
   } catch (err) {
-    console.error('Failed to load cancellations from localStorage:', err);
+    console.error('Failed to read cancellations from localStorage:', err);
   }
-  return [];
+
+  // Fallback to bundled seed dataset (July + August 2026)
+  return Array.isArray(defaultSeedCancellations) ? [...defaultSeedCancellations] : [];
 };
 
 /**
- * Save cancellations array for a specific month and year into localStorage
+ * Filter cancellations by selectedMonths and selectedFY
+ * - selectedMonths: Array of months (e.g. ['April', 'May', 'June', 'July']) or string or [] (All)
+ * - selectedFY: e.g. '2026'
  */
-export const saveCancellations = (month, year, rows) => {
-  try {
-    const key = `${STORAGE_KEY_PREFIX}${getMonthKey(month, year)}`;
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(key, JSON.stringify(rows));
+export const loadCancellations = (selectedMonths = [], selectedFY = '2026') => {
+  const allRecords = getAllCancellationsRegistry();
+  const yearStr = String(selectedFY || '2026').trim();
+
+  // Normalize selected months
+  let activeMonthNames = [];
+  if (Array.isArray(selectedMonths)) {
+    activeMonthNames = selectedMonths
+      .map(m => String(m).trim().toLowerCase())
+      .filter(m => m && m !== 'all' && m !== 'all months');
+  } else if (typeof selectedMonths === 'string' && selectedMonths !== 'All') {
+    activeMonthNames = [selectedMonths.trim().toLowerCase()];
+  }
+
+  return allRecords.filter(row => {
+    // Check FY match
+    const rowYear = String(row.year || '2026').trim();
+    if (yearStr && rowYear !== yearStr) {
+      return false;
     }
-    return true;
+
+    // Check Month match
+    if (activeMonthNames.length === 0) {
+      // If no months selected or "All Months" is selected, return all for this year
+      return true;
+    }
+
+    const rowMonth = String(row.month || '').trim().toLowerCase();
+    return activeMonthNames.includes(rowMonth);
+  });
+};
+
+/**
+ * Save new/uploaded cancellation rows into the persistent registry.
+ * Replaces any existing records for the month(s) & year(s) present in the new upload.
+ */
+export const saveUploadedCancellations = (newRows = []) => {
+  try {
+    const current = getAllCancellationsRegistry();
+
+    // Identify which month/year combinations are in the new upload
+    const uploadedCombos = new Set(
+      newRows.map(r => `${String(r.month).toLowerCase()}_${String(r.year).toLowerCase()}`)
+    );
+
+    // Keep records from current that are NOT being overwritten by this upload
+    const retained = current.filter(r => {
+      const combo = `${String(r.month).toLowerCase()}_${String(r.year).toLowerCase()}`;
+      return !uploadedCombos.has(combo);
+    });
+
+    const updated = [...retained, ...newRows];
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(REGISTRY_STORAGE_KEY, JSON.stringify(updated));
+    }
+    return updated;
   } catch (err) {
-    console.error('Failed to save cancellations to localStorage:', err);
-    return false;
+    console.error('Failed to save uploaded cancellations:', err);
+    throw err;
   }
 };
 
 /**
- * Clear cancellations for a specific month and year
+ * Reset cancellations registry to factory seed defaults
+ */
+export const resetCancellationsToDefault = () => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(REGISTRY_STORAGE_KEY);
+    }
+    return defaultSeedCancellations;
+  } catch (err) {
+    console.error('Failed to reset cancellations:', err);
+    return [];
+  }
+};
+
+/**
+ * Clear cancellations for backward compatibility
  */
 export const clearCancellations = (month, year) => {
-  try {
-    const key = `${STORAGE_KEY_PREFIX}${getMonthKey(month, year)}`;
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(key);
-    }
-    return true;
-  } catch (err) {
-    console.error('Failed to clear cancellations from localStorage:', err);
-    return false;
-  }
+  return resetCancellationsToDefault();
 };
 
 /**
- * Normalizes raw cancellation rows from JSON/Excel
+ * Normalizes raw cancellation rows from JSON/Excel and validates required columns.
+ * Throws an Error if 'Month' or 'Year' columns are missing.
  */
-export const normalizeCancellationRows = (rawRows, month = 'July', year = '2026') => {
-  if (!Array.isArray(rawRows)) return [];
+export const normalizeCancellationRows = (rawRows, options = {}) => {
+  if (!Array.isArray(rawRows) || rawRows.length === 0) {
+    throw new Error('The uploaded file contains no data rows.');
+  }
 
-  return rawRows.map(row => {
+  // 1. Column Header Validation
+  const firstRow = rawRows[0] || {};
+  const allKeys = Object.keys(firstRow).map(k => k.trim().toLowerCase().replace(/\s+/g, '_'));
+
+  const hasMonthCol = allKeys.some(k => k === 'month' || k === 'month_name' || k.includes('month'));
+  const hasYearCol = allKeys.some(k => k === 'year' || k === 'fy' || k.includes('year'));
+
+  if (!hasMonthCol && !hasYearCol) {
+    throw new Error('Upload Failed: Missing required columns "Month" and "Year". Please ensure your cancellation file contains both "Month" (e.g. July, August) and "Year" (e.g. 2026) columns.');
+  }
+  if (!hasMonthCol) {
+    throw new Error('Upload Failed: Missing required column "Month". Please ensure your cancellation file includes a "Month" column (e.g., July, August).');
+  }
+  if (!hasYearCol) {
+    throw new Error('Upload Failed: Missing required column "Year". Please ensure your cancellation file includes a "Year" column (e.g., 2026).');
+  }
+
+  // 2. Row-by-Row Normalization and Validation
+  return rawRows.map((row, idx) => {
     const normalizedRow = {};
     for (const k in row) {
       const cleanKey = k.trim().toLowerCase().replace(/\s+/g, '_');
       normalizedRow[cleanKey] = row[k];
     }
+
+    // Extract Month
+    const rawMonth = 
+      normalizedRow.month || 
+      normalizedRow.month_name || 
+      row['Month'] || 
+      row['month'] || 
+      options.fallbackMonth || 
+      '';
+    
+    // Extract Year
+    const rawYear = 
+      normalizedRow.year || 
+      normalizedRow.fy || 
+      row['Year'] || 
+      row['year'] || 
+      options.fallbackYear || 
+      '';
+
+    if (!rawMonth || !String(rawMonth).trim()) {
+      throw new Error(`Row ${idx + 2} is missing a value in the "Month" column.`);
+    }
+    if (!rawYear || !String(rawYear).trim()) {
+      throw new Error(`Row ${idx + 2} is missing a value in the "Year" column.`);
+    }
+
+    const cleanMonth = String(rawMonth).trim();
+    // Capitalize month: e.g. "july" -> "July"
+    const capitalizedMonth = cleanMonth.charAt(0).toUpperCase() + cleanMonth.slice(1).toLowerCase();
+    const cleanYear = String(rawYear).trim();
 
     // Extract channel
     const rawChannel = 
@@ -124,43 +218,25 @@ export const normalizeCancellationRows = (rawRows, month = 'July', year = '2026'
       item_color: itemColor,
       units: unitsVal,
       price: priceVal,
-      month: month,
-      year: year
+      month: capitalizedMonth,
+      year: cleanYear
     };
   });
 };
 
 /**
- * Parse an uploaded Excel (.xlsx, .xls) or CSV file for Cancellations
+ * Parse an uploaded Excel (.xlsx, .xls) or CSV file for Cancellations.
+ * Validates required "Month" and "Year" columns and saves to persistent registry.
  */
-export const parseCancellationFile = (file, fallbackMonth = 'July', fallbackYear = '2026') => {
+export const parseCancellationFile = (file) => {
   return new Promise((resolve, reject) => {
     if (!file) {
       return reject(new Error('No file selected'));
     }
 
     const fileName = file.name || '';
-    const months = [
-      'january', 'february', 'march', 'april', 'may', 'june', 
-      'july', 'august', 'september', 'october', 'november', 'december'
-    ];
-    let detectedMonth = fallbackMonth;
-    let detectedYear = fallbackYear;
-
-    const lowerName = fileName.toLowerCase();
-    for (const m of months) {
-      if (lowerName.includes(m)) {
-        detectedMonth = m.charAt(0).toUpperCase() + m.slice(1);
-        break;
-      }
-    }
-
-    const yearMatch = fileName.match(/(202\d)/);
-    if (yearMatch) {
-      detectedYear = yearMatch[1];
-    }
-
     const reader = new FileReader();
+
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
@@ -170,21 +246,25 @@ export const parseCancellationFile = (file, fallbackMonth = 'July', fallbackYear
         const rawJson = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
         if (!rawJson || rawJson.length === 0) {
-          throw new Error('The selected sheet is empty');
+          throw new Error('The selected Excel sheet contains no rows.');
         }
 
-        const normalized = normalizeCancellationRows(rawJson, detectedMonth, detectedYear);
+        // normalizeCancellationRows throws Error if Month or Year column is missing
+        const normalized = normalizeCancellationRows(rawJson);
 
         const totalUnits = normalized.reduce((acc, r) => acc + r.units, 0);
         const totalPrice = normalized.reduce((acc, r) => acc + r.price, 0);
 
-        saveCancellations(detectedMonth, detectedYear, normalized);
+        const uniqueMonths = [...new Set(normalized.map(r => r.month))];
+        const uniqueYears = [...new Set(normalized.map(r => r.year))];
+
+        saveUploadedCancellations(normalized);
 
         resolve({
           success: true,
           fileName,
-          month: detectedMonth,
-          year: detectedYear,
+          months: uniqueMonths,
+          years: uniqueYears,
           recordCount: normalized.length,
           totalUnits,
           totalPrice,
@@ -194,7 +274,8 @@ export const parseCancellationFile = (file, fallbackMonth = 'July', fallbackYear
         reject(err);
       }
     };
-    reader.onerror = (err) => reject(err);
+
+    reader.onerror = (err) => reject(new Error('Failed to read file.'));
     reader.readAsArrayBuffer(file);
   });
 };

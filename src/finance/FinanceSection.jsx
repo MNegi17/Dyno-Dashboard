@@ -18,7 +18,7 @@ import {
 import { 
   loadCancellations, 
   parseCancellationFile, 
-  clearCancellations 
+  resetCancellationsToDefault 
 } from './cancellationStorage';
 import { calculateFinanceMetrics } from './financeMetrics.js';
 import './FinanceSection.css';
@@ -44,17 +44,6 @@ export const FinanceSection = ({
   getChannelColor,
   onReturnUpload
 }) => {
-  // Determine primary month name for cancellations mapping
-  const primaryMonth = useMemo(() => {
-    if (Array.isArray(selectedMonth) && selectedMonth.length > 0) {
-      return selectedMonth[0];
-    }
-    if (typeof selectedMonth === 'string' && selectedMonth !== 'All') {
-      return selectedMonth;
-    }
-    return 'July';
-  }, [selectedMonth]);
-
   const [cancellationsData, setCancellationsData] = useState([]);
   
   // Upload modal state (Admin only)
@@ -63,11 +52,11 @@ export const FinanceSection = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Load cancellations when primary month or year changes
+  // Load cancellations whenever selectedMonth or selectedFY changes
   useEffect(() => {
-    const loaded = loadCancellations(primaryMonth, selectedFY);
+    const loaded = loadCancellations(selectedMonth, selectedFY);
     setCancellationsData(loaded);
-  }, [primaryMonth, selectedFY]);
+  }, [selectedMonth, selectedFY]);
 
   // Compute all financial metrics dynamically from the filtered datasets
   const metrics = useMemo(() => {
@@ -88,11 +77,13 @@ export const FinanceSection = ({
     setIsProcessing(true);
     setUploadStatus(null);
     try {
-      const res = await parseCancellationFile(file, primaryMonth, selectedFY);
-      setCancellationsData(res.rows);
+      const res = await parseCancellationFile(file);
+      // Reload for currently selected months & year
+      const reloaded = loadCancellations(selectedMonth, selectedFY);
+      setCancellationsData(reloaded);
       setUploadStatus({
         success: true,
-        message: `Successfully ingested "${res.fileName}"! ${formatUnits(res.totalUnits)} cancelled units (${formatINR(res.totalPrice)}) registered.`
+        message: `Successfully ingested "${res.fileName}" (${res.months.join(', ')} ${res.years.join(', ')})! ${formatUnits(res.totalUnits)} cancelled units (${formatINR(res.totalPrice)}) registered.`
       });
     } catch (err) {
       setUploadStatus({
@@ -106,12 +97,12 @@ export const FinanceSection = ({
   };
 
   const handleResetCancellations = () => {
-    clearCancellations(primaryMonth, selectedFY);
-    const reloaded = loadCancellations(primaryMonth, selectedFY);
+    resetCancellationsToDefault();
+    const reloaded = loadCancellations(selectedMonth, selectedFY);
     setCancellationsData(reloaded);
     setUploadStatus({
       success: true,
-      message: `Reset to default cancellation dataset for ${primaryMonth} ${selectedFY}.`
+      message: 'Reset to default July & August cancellation records.'
     });
   };
 
@@ -486,7 +477,7 @@ export const FinanceSection = ({
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Upload Cancellations ({primaryMonth} {selectedFY})</h3>
+              <h3>Upload Cancellations Dataset</h3>
               <button 
                 className="modal-close-btn"
                 onClick={() => setIsModalOpen(false)}
@@ -495,8 +486,8 @@ export const FinanceSection = ({
               </button>
             </div>
 
-            <p style={{ color: '#c4b5fd', fontSize: '0.9rem', marginBottom: '1.5rem', lineHeight: '1.5' }}>
-              Upload an Excel (.xlsx, .xls) or CSV sheet containing cancelled orders for <strong>{primaryMonth} {selectedFY}</strong>.
+            <p style={{ color: '#c4b5fd', fontSize: '0.88rem', marginBottom: '1.25rem', lineHeight: '1.5' }}>
+              Upload an Excel (.xlsx, .xls) or CSV sheet containing cancelled orders. <strong>The file must include "Month" and "Year" columns</strong> (e.g. July, August and 2026).
             </p>
 
             <div 
@@ -508,7 +499,10 @@ export const FinanceSection = ({
                 {isProcessing ? 'Processing spreadsheet...' : 'Click to select cancellation spreadsheet'}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
-                Supports .xlsx, .xls, .csv (e.g. July-2026_CancelledOrders.xlsx)
+                Supports .xlsx, .xls, .csv (e.g. August-2026_CancelledOrders.xlsx)
+              </div>
+              <div style={{ marginTop: '0.5rem', fontSize: '0.76rem', color: '#a78bfa' }}>
+                Required columns: <strong>Month</strong>, <strong>Year</strong>, <strong>Channel Name</strong>, <strong>Item Color</strong>, <strong>Units</strong>, <strong>New SP</strong>
               </div>
               <input 
                 type="file" 
