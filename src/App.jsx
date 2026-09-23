@@ -1,3 +1,4 @@
+import { FinanceSection } from './finance/FinanceSection';
 // Dyno Dashboard v1.1 - with MN branding
 import { useState, useMemo, useEffect, useRef, memo } from 'react';
 import * as XLSX from 'xlsx';
@@ -1171,6 +1172,9 @@ Dyno Dashboard Auto-Mail`
                   const fyVal = row.fy || '2026';
                   dateObj = correctParsedDate(new Date(row.parsedDate), fyVal);
                 }
+                const qtyVal = parseFloat(row.return_qty) || 0;
+                const totalVal = parseFloat(row.total ?? row.price ?? 0) || 0;
+                const priceVal = parseFloat(row.price ?? (totalVal > 0 && qtyVal > 0 ? totalVal / qtyVal : 0)) || 0;
                 return {
                   parsedDate: dateObj,
                   monthName: row.monthName || 'Unknown',
@@ -1178,7 +1182,10 @@ Dyno Dashboard Auto-Mail`
                   fy: row.fy || '2026',
                   channel_name: normalizeChannelName(row.channel_name),
                   item_color: row.item_color || 'Unknown',
-                  return_qty: parseFloat(row.return_qty) || 0,
+                  return_qty: qtyVal,
+                  return_type: row.return_type || row.returntype || row.type || 'Customer Return',
+                  total: totalVal,
+                  price: priceVal,
                   division: row.division || 'Unknown',
                   categories: row.categories || 'Unknown',
                   is_return: true
@@ -2641,6 +2648,22 @@ Dyno Dashboard Auto-Mail`
         const divisionVal = normalizedRow.division || 'Unknown';
         const categoryVal = normalizedRow.category || normalizedRow.categories || 'Unknown';
 
+        // Extract and normalize return_type (Courier Return / RTO vs Customer Return)
+        let rawReturnType = (normalizedRow.return_type || normalizedRow.returntype || normalizedRow.type || normalizedRow.return_status || normalizedRow.status || '').trim();
+        let returnType = 'Customer Return';
+        const lowerType = rawReturnType.toLowerCase();
+        if (lowerType.includes('courier') || lowerType.includes('rto')) {
+          returnType = 'Courier Return';
+        } else if (lowerType.includes('customer') || lowerType === 'return') {
+          returnType = 'Customer Return';
+        } else if (rawReturnType) {
+          returnType = rawReturnType;
+        }
+
+        // Extract total & price
+        const totalVal = parseFloat(normalizedRow.total || normalizedRow.unit_price || normalizedRow.price || 0) || 0;
+        const priceVal = parseFloat(normalizedRow.unit_price || (totalVal > 0 && returnQty > 0 ? totalVal / returnQty : 0)) || 0;
+
         return {
           parsedDate: dateObj ? dateObj.toISOString() : null,
           monthName,
@@ -2649,6 +2672,9 @@ Dyno Dashboard Auto-Mail`
           channel_name: channelName,
           item_color: itemColor,
           return_qty: returnQty,
+          return_type: returnType,
+          total: totalVal,
+          price: priceVal,
           division: divisionVal,
           categories: categoryVal,
           is_return: true
@@ -4333,6 +4359,10 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
               <Home size={20} />
               <span>Dashboard</span>
             </div>
+            <div className={`nav-item ${activePage === 'finance' ? 'active' : ''}`} onClick={() => { setActivePage('finance'); setIsMobileMenuOpen(false); if (!selectedMonth || selectedMonth.length === 0) setSelectedMonth(['July']); }}>
+              <DollarSign size={20} />
+              <span>Finance</span>
+            </div>
             <div className={`nav-item ${activePage === 'trends' ? 'active' : ''}`} onClick={() => { setActivePage('trends'); setIsMobileMenuOpen(false); }}>
               <BarChart2 size={20} />
               <span>Trends</span>
@@ -4397,6 +4427,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             <h1>
               {activePage === 'raw_files' && 'Raw Files Management'}
               {activePage === 'reco' && 'Sales Reconciliation'}
+              {activePage === 'finance' && 'Finance & Net Realization'}
               {activePage === 'dashboard' && 'Sales Overview'}
               {activePage === 'trends' && 'Performance Trends'}
               {activePage === 'insights' && 'Top Performers & Insights'}
@@ -4471,7 +4502,50 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           </div>
         </header>
 
-        {activePage === 'raw_files' && userRole === 'admin' ? (
+        {activePage === 'finance' ? (
+            <div className="dashboard-content">
+              {/* Global Filters for Finance: Year, Month, Channel */}
+              <div className="filters-container" style={{ marginBottom: '1.5rem' }}>
+                <CustomSelect 
+                  value={selectedFY} 
+                  options={['2026']} 
+                  onChange={(val) => {
+                    setSelectedFY(val);
+                    setSelectedMonth([]);
+                    setSelectedDate('All');
+                  }} 
+                  placeholder="Select Year" 
+                />
+                <CustomMultiSelect 
+                  values={selectedMonth} 
+                  options={filterOptions.months} 
+                  onChange={(val) => {
+                    setSelectedMonth(val);
+                    setSelectedDate('All');
+                  }} 
+                  placeholder="All Months" 
+                />
+                <CustomMultiSelect 
+                  values={selectedChannels} 
+                  options={filterOptions.channels} 
+                  onChange={setSelectedChannels} 
+                  placeholder="All Channels" 
+                />
+              </div>
+
+              <FinanceSection
+                salesData={filteredData}
+                returnData={filteredReturnData}
+                allSalesData={data}
+                selectedMonth={selectedMonth}
+                selectedFY={selectedFY}
+                selectedChannels={selectedChannels}
+                userRole={userRole}
+                getChannelColor={getChannelColor}
+                onReturnUpload={handleReturnUpload}
+              />
+            </div>
+          ) : activePage === 'raw_files' && userRole === 'admin' ? (
           <div className="dashboard-content">
             <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', marginBottom: '2rem' }}>
               <div className="card" style={{ marginBottom: 0 }}>
@@ -6196,7 +6270,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
 
                 {/* Center Hero: Today Quick Filter */}
                 <div className="today-center-wrapper">
-                  {activePage !== 'goals' && (() => {
+                  {activePage !== 'goals' && activePage !== 'finance' && (() => {
                     const { currentMonth, formattedToday, currentFY } = getTodayInfo();
                     const isTodayActive = selectedMonth.length === 1 && selectedMonth[0] === currentMonth && selectedDate === formattedToday && selectedFY === currentFY;
                     return (
