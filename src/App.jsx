@@ -1026,7 +1026,32 @@ Dyno Dashboard Auto-Mail`
         recordCount: f.record_count,
         data: [] // Initially empty
       }));
-      setUploadedFiles(formatted);
+
+      // Strictly deduplicate by file name, keeping only the newest record per name
+      const seenFileNames = new Set();
+      const deduplicated = [];
+      const duplicateIdsToClean = [];
+
+      formatted.forEach(f => {
+        const name = f.name || '';
+        if (seenFileNames.has(name)) {
+          if (name.startsWith('[REALTIME_SYNC]')) {
+            duplicateIdsToClean.push(f.id);
+          }
+        } else {
+          seenFileNames.add(name);
+          deduplicated.push(f);
+        }
+      });
+
+      // Self-healing: Purge any duplicate records from Supabase in the background
+      if (duplicateIdsToClean.length > 0) {
+        supabase.from('uploaded_files').delete().in('id', duplicateIdsToClean).then(() => {
+          console.log(`[Auto-Clean] Purged ${duplicateIdsToClean.length} duplicate file entries from database`);
+        }).catch(() => {});
+      }
+
+      setUploadedFiles(deduplicated);
 
       // Set lastSyncTime from today's [REALTIME_SYNC] file or latest
       const todayFileName = getTodayRealtimeFileName();
@@ -1069,18 +1094,18 @@ Dyno Dashboard Auto-Mail`
       }
       
       // 2. Start background download
-      if (formatted.length > 0) {
-        const mainFiles = formatted.filter(f => 
+      if (deduplicated.length > 0) {
+        const mainFiles = deduplicated.filter(f => 
           !isFY25File(f.name) && 
           !(f.name || '').startsWith('[INVENTORY]') &&
           !(f.name || '').startsWith('[LAUNCH_DATES]')
         );
         startBackgroundDownload(mainFiles);
         
-        const inventoryFiles = formatted.filter(f => (f.name || '').startsWith('[INVENTORY]'));
+        const inventoryFiles = deduplicated.filter(f => (f.name || '').startsWith('[INVENTORY]'));
         downloadInventorySilently(inventoryFiles);
 
-        const launchDateFiles = formatted.filter(f => (f.name || '').startsWith('[LAUNCH_DATES]'));
+        const launchDateFiles = deduplicated.filter(f => (f.name || '').startsWith('[LAUNCH_DATES]'));
         downloadLaunchDatesSilently(launchDateFiles);
       }
     } else if (error) {

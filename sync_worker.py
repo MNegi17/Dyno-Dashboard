@@ -516,6 +516,20 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
                     with urllib.request.urlopen(update_req, timeout=45) as resp:
                         print(f"[Audit Engine] Successfully reconciled {file_name} with {len(rows)} units across {len(orders)} orders in Supabase!")
                         reconciled_any = True
+                    
+                    # Clean up any duplicate records for this date
+                    if len(existing_realtime) > 1:
+                        dup_ids = ",".join(f['id'] for f in existing_realtime[1:])
+                        del_req = urllib.request.Request(
+                            f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
+                            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
+                            method="DELETE"
+                        )
+                        try:
+                            with urllib.request.urlopen(del_req, timeout=30) as d_resp:
+                                print(f"[Audit Engine] Cleaned up {len(existing_realtime)-1} duplicate records for {file_name}")
+                        except Exception as de:
+                            print(f"[Audit Engine] Could not delete duplicates: {de}")
                 else:
                     insert_req = urllib.request.Request(
                         f"{SUPABASE_URL}/rest/v1/uploaded_files",
@@ -593,6 +607,20 @@ def execute_sync(force_reconcile_yesterday=False):
         )
         with urllib.request.urlopen(update_req, timeout=30) as resp:
             print(f"[Python Sync] Successfully updated '{file_name}' ({len(rows)} rows) in Supabase!")
+
+        # Clean up any duplicate records for this date
+        if len(existing) > 1:
+            dup_ids = ",".join(f['id'] for f in existing[1:])
+            del_req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
+                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
+                method="DELETE"
+            )
+            try:
+                with urllib.request.urlopen(del_req, timeout=30) as d_resp:
+                    print(f"[Python Sync] Cleaned up {len(existing)-1} duplicate records for {file_name}")
+            except Exception as de:
+                print(f"[Python Sync] Could not delete duplicates: {de}")
     else:
         insert_req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/uploaded_files",

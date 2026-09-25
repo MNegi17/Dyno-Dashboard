@@ -52,7 +52,30 @@ export function getCooldownRemainingSeconds() {
 /**
  * Execute real-time Uniware ingestion and persist to Supabase
  */
+let _syncInProgressPromise = null;
+let _reconcileInProgressPromise = null;
+
 export async function syncRealtimeSalesToSupabase(options = {}) {
+  const { force = false } = options;
+
+  // Prevent multiple concurrent sync operations
+  if (_syncInProgressPromise) {
+    console.log('[RealtimeSync] Sync already in progress, attaching to existing promise...');
+    return _syncInProgressPromise;
+  }
+
+  _syncInProgressPromise = (async () => {
+    try {
+      return await _executeSyncRealtimeSales(options);
+    } finally {
+      _syncInProgressPromise = null;
+    }
+  })();
+
+  return _syncInProgressPromise;
+}
+
+async function _executeSyncRealtimeSales(options = {}) {
   const { force = false } = options;
 
   if (!force && !canTriggerManualSync()) {
@@ -98,14 +121,15 @@ export async function syncRealtimeSalesToSupabase(options = {}) {
     data: normalizedRows
   };
 
-  // Upsert or replace existing [REALTIME_SYNC] entry in uploaded_files
+  // Upsert or replace existing [REALTIME_SYNC] entry in uploaded_files (strictly 1 record per name)
   const { data: existingFiles } = await supabase
     .from('uploaded_files')
-    .select('id')
-    .eq('name', fileName);
+    .select('id, upload_date')
+    .eq('name', fileName)
+    .order('upload_date', { ascending: false });
 
   if (existingFiles && existingFiles.length > 0) {
-    const id = existingFiles[0].id;
+    const primaryId = existingFiles[0].id;
     await supabase
       .from('uploaded_files')
       .update({
@@ -113,7 +137,17 @@ export async function syncRealtimeSalesToSupabase(options = {}) {
         record_count: newFileEntry.record_count,
         data: newFileEntry.data
       })
-      .eq('id', id);
+      .eq('id', primaryId);
+
+    // If multiple duplicate rows exist for this exact name, delete all duplicates immediately
+    if (existingFiles.length > 1) {
+      const duplicateIds = existingFiles.slice(1).map(f => f.id);
+      await supabase
+        .from('uploaded_files')
+        .delete()
+        .in('id', duplicateIds);
+      console.log(`[RealtimeSync] Cleaned up ${duplicateIds.length} duplicate entries for ${fileName}`);
+    }
   } else {
     await supabase
       .from('uploaded_files')
@@ -205,6 +239,25 @@ export function getPastDayWindowIST(daysAgo = 1) {
  * up to 11:59:59 PM from Uniware and updates Supabase automatically.
  */
 export async function reconcileYesterdayClientSide(options = {}) {
+  const { threshold = 10, force = false } = options;
+
+  if (_reconcileInProgressPromise) {
+    console.log('[Client Reconcile] Reconciliation already in progress, returning active promise...');
+    return _reconcileInProgressPromise;
+  }
+
+  _reconcileInProgressPromise = (async () => {
+    try {
+      return await _executeReconcileYesterday(options);
+    } finally {
+      _reconcileInProgressPromise = null;
+    }
+  })();
+
+  return _reconcileInProgressPromise;
+}
+
+async function _executeReconcileYesterday(options = {}) {
   const { threshold = 10, force = false } = options;
   const daysToCheck = [1];
   const results = [];
@@ -303,11 +356,28 @@ export async function reconcileYesterdayClientSide(options = {}) {
           data: normalizedRows
         };
 
-        if (existingFile) {
+        // Direct fresh query for existing file records to prevent any race condition
+        const { data: currentFiles } = await supabase
+          .from('uploaded_files')
+          .select('id, upload_date')
+          .eq('name', fileName)
+          .order('upload_date', { ascending: false });
+
+        if (currentFiles && currentFiles.length > 0) {
+          const primaryId = currentFiles[0].id;
           await supabase
             .from('uploaded_files')
             .update(newFileEntry)
-            .eq('id', existingFile.id);
+            .eq('id', primaryId);
+
+          if (currentFiles.length > 1) {
+            const duplicateIds = currentFiles.slice(1).map(f => f.id);
+            await supabase
+              .from('uploaded_files')
+              .delete()
+              .in('id', duplicateIds);
+            console.log(`[Client Reconcile] Purged ${duplicateIds.length} duplicate entries for ${fileName}`);
+          }
           console.log(`[Client Reconcile] Successfully updated ${fileName} with ${normalizedRows.length} units!`);
         } else {
           await supabase
