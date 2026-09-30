@@ -49,6 +49,115 @@ export function getCooldownRemainingSeconds() {
   return Math.ceil((COOLDOWN_MS - elapsed) / 1000);
 }
 
+export const CONFIG_DELETED_SYNC_DATES = '[CONFIG] deleted_sync_dates';
+
+/**
+ * Fetch persistent set of deleted past sync dates from Supabase
+ */
+export async function getDeletedSyncDates() {
+  try {
+    const { data } = await supabase
+      .from('uploaded_files')
+      .select('id, data')
+      .eq('name', CONFIG_DELETED_SYNC_DATES)
+      .limit(1);
+
+    if (data && data.length > 0 && Array.isArray(data[0].data)) {
+      return new Set(data[0].data);
+    }
+  } catch (err) {
+    console.warn('[Sync Config] Error reading deleted sync dates:', err);
+  }
+  return new Set();
+}
+
+/**
+ * Add a past date string (e.g. '22 Sep 2026') to the persistent deleted blocklist
+ */
+export async function markSyncDateAsDeleted(dateStr) {
+  if (!dateStr) return;
+  const cleanDateStr = dateStr.replace('[REALTIME_SYNC]', '').trim();
+  try {
+    const { data: existing } = await supabase
+      .from('uploaded_files')
+      .select('id, data')
+      .eq('name', CONFIG_DELETED_SYNC_DATES)
+      .limit(1);
+
+    let dates = [cleanDateStr];
+    if (existing && existing.length > 0) {
+      const currentList = Array.isArray(existing[0].data) ? existing[0].data : [];
+      dates = Array.from(new Set([...currentList, cleanDateStr]));
+      await supabase
+        .from('uploaded_files')
+        .update({
+          data: dates,
+          record_count: dates.length,
+          upload_date: new Date().toISOString()
+        })
+        .eq('id', existing[0].id);
+    } else {
+      await supabase
+        .from('uploaded_files')
+        .insert([{
+          name: CONFIG_DELETED_SYNC_DATES,
+          data: dates,
+          record_count: dates.length,
+          upload_date: new Date().toISOString()
+        }]);
+    }
+    console.log(`[Sync Config] Marked ${cleanDateStr} as permanently deleted`);
+  } catch (err) {
+    console.warn('[Sync Config] Failed to record deleted sync date:', err);
+  }
+}
+
+/**
+ * Check if an uploaded manual Excel sales file covers a specific date
+ */
+export function doesManualFileCoverDate(fileName, day, month0, year) {
+  const fn = (fileName || '').toLowerCase();
+  if (
+    fn.startsWith('[realtime_sync]') ||
+    fn.startsWith('[inventory]') ||
+    fn.startsWith('[launch_dates]') ||
+    fn.startsWith('[return]') ||
+    fn.startsWith('[config]') ||
+    fn.includes('cancellation') ||
+    fn.includes('fy25')
+  ) {
+    return false;
+  }
+
+  const monthNamesLong = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const yLong = monthNamesLong[month0];
+  const yShort = monthNamesShort[month0];
+
+  // Monthly reco check: e.g. [RECO] August 2026 Reconciled Sales
+  if (fn.includes('[reco]') && (fn.includes(yLong) || fn.includes(yShort))) {
+    return true; // covers all days of that month
+  }
+
+  if (!fn.includes(yLong) && !fn.includes(yShort) && !fn.includes('.xlsx')) {
+    return false;
+  }
+
+  // 1. Range check: (18-20), 18-20, 29-30, (4-6)
+  const rangeMatches = [...fn.matchAll(/\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?/g)];
+  for (const m of rangeMatches) {
+    const startD = parseInt(m[1], 10);
+    const endD = parseInt(m[2], 10);
+    if (startD <= day && day <= endD) {
+      return true;
+    }
+  }
+
+  // 2. Exact single day match: 22-September, 21-September, 28-July
+  const singleRegex = new RegExp('(^|[^\\d])0?' + day + '([^\\d]|$)');
+  return singleRegex.test(fn);
+}
+
 /**
  * Execute real-time Uniware ingestion and persist to Supabase
  */
@@ -171,26 +280,26 @@ async function _executeSyncRealtimeSales(options = {}) {
       channel_name: r.channel_name,
       categories: r.categories,
       item_color: r.item_color,
-      item_type_size: String(r.item_type_size),
+      item_type_size: r.item_type_size,
       mrp: r.mrp,
-      enrichment_status: r.enrichmentStatus
+      synced_at: new Date().toISOString()
     }));
 
-    // Chunk upserts in batches of 100
-    for (let i = 0; i < supabaseSalesRows.length; i += 100) {
-      const chunk = supabaseSalesRows.slice(i, i + 100);
-      await supabase
-        .from('realtime_sales')
-        .upsert(chunk, { onConflict: 'id' });
+    if (supabaseSalesRows.length > 0) {
+      const CHUNK_SIZE = 200;
+      for (let i = 0; i < supabaseSalesRows.length; i += CHUNK_SIZE) {
+        const chunk = supabaseSalesRows.slice(i, i + CHUNK_SIZE);
+        await supabase
+          .from('realtime_sales')
+          .upsert(chunk, { onConflict: 'id' });
+      }
     }
-  } catch (err) {
-    console.warn('[RealtimeSync] Note: realtime_sales table upsert skipped:', err.message);
+  } catch (tableErr) {
+    console.warn('[RealtimeSync] realtime_sales table write skipped:', tableErr.message);
   }
 
   const syncTimestamp = new Date();
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('dyno_last_sync_time', syncTimestamp.toISOString());
-  }
+  localStorage.setItem('dyno_last_sync_time', syncTimestamp.toISOString());
 
   return {
     success: true,
@@ -220,12 +329,14 @@ export function getPastDayWindowIST(daysAgo = 1) {
   const dayStr = date.toString().padStart(2, '0');
   const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthName = monthShort[month];
-  const fileName = `[REALTIME_SYNC] ${dayStr} ${monthName} ${year}`;
+  const dateStr = `${dayStr} ${monthName} ${year}`;
+  const fileName = `[REALTIME_SYNC] ${dateStr}`;
 
   return {
     fromDate: new Date(startUtcMs).toISOString(),
     toDate: new Date(endUtcMs).toISOString(),
     fileName,
+    dateStr,
     day: date,
     month: month,
     year: year
@@ -234,9 +345,8 @@ export function getPastDayWindowIST(daysAgo = 1) {
 
 /**
  * Client-Side Audit & Reconciliation Engine:
- * When anyone opens or reloads the dashboard (even at 12:30 AM or 1:00 AM next day),
- * audits yesterday against Uniware. If missing or difference > 10, fetches full 24-hr data
- * up to 11:59:59 PM from Uniware and updates Supabase automatically.
+ * When anyone opens or reloads the dashboard, audits yesterday against Uniware.
+ * If deleted by user or covered by a manual file, skips reconciliation and purges obsolete sync file.
  */
 export async function reconcileYesterdayClientSide(options = {}) {
   const { threshold = 10, force = false } = options;
@@ -264,10 +374,19 @@ async function _executeReconcileYesterday(options = {}) {
 
   for (const daysAgo of daysToCheck) {
     try {
-      const { fromDate, toDate, fileName, day, month, year } = getPastDayWindowIST(daysAgo);
+      const { fromDate, toDate, fileName, dateStr, day, month, year } = getPastDayWindowIST(daysAgo);
       console.log(`[Client Reconcile] Auditing ${fileName} (${fromDate} to ${toDate})...`);
 
-      // 1. Fetch Supabase files metadata
+      // 1. Check if user permanently deleted this past sync date
+      const deletedDates = await getDeletedSyncDates();
+      if (deletedDates.has(dateStr) && !force) {
+        console.log(`[Client Reconcile] ${dateStr} was marked as deleted by user. Skipping reconciliation.`);
+        // Clean up any remaining sync file if present
+        await supabase.from('uploaded_files').delete().eq('name', fileName);
+        continue;
+      }
+
+      // 2. Fetch Supabase files metadata
       const { data: allFiles, error: fetchErr } = await supabase
         .from('uploaded_files')
         .select('id, name, record_count, upload_date')
@@ -279,42 +398,16 @@ async function _executeReconcileYesterday(options = {}) {
         continue;
       }
 
-      // 2. Check if a manual verified Excel file exists for this date (handles single days & ranges like (27-29)-August)
-      const monthNamesLong = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-      const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-      const yMonthLong = monthNamesLong[month];
-      const yMonthShort = monthNamesShort[month];
-
-      const manualFile = allFiles.find(f => {
-        const fn = (f.name || '').toLowerCase();
-        if (fn.startsWith('[realtime_sync]') || fn.startsWith('[inventory]') || fn.startsWith('[launch_dates]') || fn.startsWith('[return]') || fn.includes('fy25')) {
-          return false;
-        }
-        if (!fn.includes(yMonthLong) && !fn.includes(yMonthShort)) {
-          return false;
-        }
-        
-        // 1. Check range matches like (27-29), 27-29, 27_29, 27 to 29
-        const rangeMatches = [...fn.matchAll(/\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?/g)];
-        for (const m of rangeMatches) {
-          const startD = parseInt(m[1], 10);
-          const endD = parseInt(m[2], 10);
-          if (startD <= day && day <= endD) {
-            return true;
-          }
-        }
-        
-        // 2. Check exact single day match
-        const singleRegex = new RegExp(`(^|[^\\d])0?${day}([^\\d]|$)`);
-        return singleRegex.test(fn);
-      });
+      // 3. Check if a manual verified Excel file covers this date
+      const manualFile = allFiles.find(f => doesManualFileCoverDate(f.name, day, month, year));
 
       if (manualFile && !force) {
-        console.log(`[Client Reconcile] Manual file exists for ${fileName}: '${manualFile.name}'. Skipping.`);
+        console.log(`[Client Reconcile] Manual file exists for ${fileName}: '${manualFile.name}'. Purging sync file and skipping.`);
+        await supabase.from('uploaded_files').delete().eq('name', fileName);
         continue;
       }
 
-      // 3. Search Uniware orders count for this 24-hr window
+      // 4. Search Uniware orders count for this 24-hr window
       const searchResult = await searchSaleOrders({ fromDate, toDate, dateType: 'CREATED' });
       const orderCodes = searchResult.orderCodes || [];
       const uniwareCount = orderCodes.length;
@@ -322,7 +415,7 @@ async function _executeReconcileYesterday(options = {}) {
 
       if (uniwareCount === 0) continue;
 
-      // 4. Check existing [REALTIME_SYNC] file in Supabase
+      // 5. Check existing [REALTIME_SYNC] file in Supabase
       const existingFile = allFiles.find(f => f.name === fileName);
       let storedUniqueOrders = 0;
       let storedRecordCount = existingFile?.record_count || 0;

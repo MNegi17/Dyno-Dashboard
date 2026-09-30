@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { syncRealtimeSalesToSupabase, reconcileYesterdayClientSide, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName } from './sync/supabaseSync.js';
+import { syncRealtimeSalesToSupabase, reconcileYesterdayClientSide, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName, markSyncDateAsDeleted, doesManualFileCoverDate, CONFIG_DELETED_SYNC_DATES } from './sync/supabaseSync.js';
 import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
 const GlowingLogoIcon = memo(({ size = 36, white = false }) => {
@@ -628,10 +628,15 @@ Dyno Dashboard Auto-Mail`
 
       if (!rtError && realtimeFiles && realtimeFiles.length > 0) {
         const item = realtimeFiles[0];
-        const parsedRows = (item.data || []).map(row => ({
-          parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
-          monthName: row.monthName || 'Unknown',
-          formattedDate: row.formattedDate || 'Unknown',
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const parsedRows = (item.data || []).map(row => {
+          const d = row.parsedDate ? new Date(row.parsedDate) : new Date();
+          const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
+          const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
+          return {
+            parsedDate: d,
+            monthName: mName,
+            formattedDate: fDate,
           fy: row.fy || '2026',
           priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
           division: row.division || 'Unknown',
@@ -639,7 +644,8 @@ Dyno Dashboard Auto-Mail`
           categories: row.categories || 'Unknown',
           item_color: row.item_color || 'Unknown',
           item_type_size: row.item_type_size || 'Unknown'
-        }));
+          };
+        });
 
         setUploadedFiles(prev => {
           const exists = prev.some(f => f.id === item.id);
@@ -703,10 +709,15 @@ Dyno Dashboard Auto-Mail`
       if (!syncedSuccessfully) {
         const clientSyncRes = await syncRealtimeSalesToSupabase({ force: true });
         if (clientSyncRes && clientSyncRes.rows) {
-          const parsedRows = clientSyncRes.rows.map(row => ({
-            parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
-            monthName: row.monthName || 'Unknown',
-            formattedDate: row.formattedDate || 'Unknown',
+          const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+          const parsedRows = clientSyncRes.rows.map(row => {
+            const d = row.parsedDate ? new Date(row.parsedDate) : new Date();
+            const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
+            const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
+            return {
+              parsedDate: d,
+              monthName: mName,
+              formattedDate: fDate,
             fy: row.fy || '2026',
             priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
             division: row.division || 'Unknown',
@@ -1019,7 +1030,12 @@ Dyno Dashboard Auto-Mail`
     const { data, error } = await supabase.from('uploaded_files').select('id, name, upload_date, record_count').order('upload_date', { ascending: false });
     
     if (!error && data) {
-      const formatted = data.map(f => ({
+      // 1. Extract config records (like deleted_sync_dates) and user files
+      const configRecord = data.find(f => f.name === CONFIG_DELETED_SYNC_DATES);
+      const deletedDatesSet = new Set(Array.isArray(configRecord?.data) ? configRecord.data : []);
+      const userFilesData = data.filter(f => !(f.name || '').startsWith('[CONFIG]'));
+
+      const formatted = userFilesData.map(f => ({
         id: f.id,
         name: f.name,
         uploadDate: new Date(f.upload_date),
@@ -1027,13 +1043,41 @@ Dyno Dashboard Auto-Mail`
         data: [] // Initially empty
       }));
 
-      // Strictly deduplicate by file name, keeping only the newest record per name
+      const todayFileName = getTodayRealtimeFileName();
+      const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+      // Strictly deduplicate by file name, and filter out obsolete/deleted past sync files
       const seenFileNames = new Set();
       const deduplicated = [];
       const duplicateIdsToClean = [];
 
       formatted.forEach(f => {
         const name = f.name || '';
+        
+        // If it's a [REALTIME_SYNC] file
+        if (name.startsWith('[REALTIME_SYNC]')) {
+          if (name !== todayFileName) {
+            // Check if this past sync date was deleted by the user or covered by a manual verified file
+            const match = name.match(/\[REALTIME_SYNC\]\s*(\d{1,2})\s*([A-Za-z]{3})\s*(\d{4})/);
+            if (match) {
+              const day = parseInt(match[1], 10);
+              const mStr = match[2].toLowerCase();
+              const month0 = monthNamesShort.indexOf(mStr);
+              const year = parseInt(match[3], 10);
+              const dateKey = `${match[1].padStart(2, '0')} ${match[2]} ${year}`;
+
+              const isDeleted = deletedDatesSet.has(dateKey) || deletedDatesSet.has(name.replace('[REALTIME_SYNC]', '').trim());
+              const isCoveredByManual = userFilesData.some(mf => doesManualFileCoverDate(mf.name, day, month0 >= 0 ? month0 : 0, year));
+
+              if (isDeleted || isCoveredByManual) {
+                console.log(`[Sync Clean] Past sync file ${name} is superseded/deleted. Purging ID ${f.id}...`);
+                duplicateIdsToClean.push(f.id);
+                return;
+              }
+            }
+          }
+        }
+
         if (seenFileNames.has(name)) {
           if (name.startsWith('[REALTIME_SYNC]')) {
             duplicateIdsToClean.push(f.id);
@@ -1044,10 +1088,10 @@ Dyno Dashboard Auto-Mail`
         }
       });
 
-      // Self-healing: Purge any duplicate records from Supabase in the background
+      // Self-healing: Purge any duplicate/superseded sync records from Supabase in the background
       if (duplicateIdsToClean.length > 0) {
         supabase.from('uploaded_files').delete().in('id', duplicateIdsToClean).then(() => {
-          console.log(`[Auto-Clean] Purged ${duplicateIdsToClean.length} duplicate file entries from database`);
+          console.log(`[Auto-Clean] Purged ${duplicateIdsToClean.length} obsolete/duplicate file entries from database`);
         }).catch(() => {});
       }
 
@@ -2839,6 +2883,14 @@ Dyno Dashboard Auto-Mail`
   };
 
   const handleDeleteFile = async (fileId) => {
+    const fileToDelete = uploadedFiles.find(f => f.id === fileId);
+    if (fileToDelete && (fileToDelete.name || '').startsWith('[REALTIME_SYNC]')) {
+      const todayFileName = getTodayRealtimeFileName();
+      if (fileToDelete.name !== todayFileName) {
+        // Record permanent deletion of this past sync date
+        await markSyncDateAsDeleted(fileToDelete.name);
+      }
+    }
     const { error } = await supabase.from('uploaded_files').delete().eq('id', fileId);
     if (!error) {
       setUploadedFiles(prev => prev.filter(f => f.id !== fileId));
@@ -2861,11 +2913,15 @@ Dyno Dashboard Auto-Mail`
       const rowFY = row.fy || 'FY26-27';
       if (selectedFY !== 'All' && rowFY !== selectedFY) return;
 
-      months.add(row.monthName || 'Unknown');
+      if (row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== '') {
+        months.add(row.monthName.trim());
+      }
       
       // Cascading logic: Only add dates that match the selected months
-      if (selectedMonth.length === 0 || selectedMonth.includes(row.monthName)) {
-        dates.add(row.formattedDate || 'Unknown');
+      if (row.formattedDate && row.formattedDate !== 'Unknown') {
+        if (selectedMonth.length === 0 || selectedMonth.includes(row.monthName)) {
+          dates.add(row.formattedDate);
+        }
       }
 
       divisions.add(row.division || 'Unknown');
@@ -2914,14 +2970,16 @@ Dyno Dashboard Auto-Mail`
     });
 
     // Months descending (latest month on top)
-    const sortedMonths = Array.from(months).sort((a, b) => {
-      const timeA = monthLatestDateMap.get(a) || 0;
-      const timeB = monthLatestDateMap.get(b) || 0;
-      if (timeA && timeB && timeA !== timeB) {
-        return timeB - timeA;
-      }
-      return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
-    });
+    const sortedMonths = Array.from(months)
+      .filter(m => m && m !== 'Unknown')
+      .sort((a, b) => {
+        const timeA = monthLatestDateMap.get(a) || 0;
+        const timeB = monthLatestDateMap.get(b) || 0;
+        if (timeA && timeB && timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
+      });
 
     return {
       months: sortedMonths,
@@ -3053,10 +3111,14 @@ Dyno Dashboard Auto-Mail`
     const categories = new Set();
 
     fy25Data.forEach(row => {
-      months.add(row.monthName || 'Unknown');
+      if (row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== '') {
+        months.add(row.monthName.trim());
+      }
       
-      if (selectedMonthPrev.length === 0 || selectedMonthPrev.includes(row.monthName)) {
-        dates.add(row.formattedDate || 'Unknown');
+      if (row.formattedDate && row.formattedDate !== 'Unknown') {
+        if (selectedMonthPrev.length === 0 || selectedMonthPrev.includes(row.monthName)) {
+          dates.add(row.formattedDate);
+        }
       }
 
       divisions.add(row.division || 'Unknown');
@@ -3105,14 +3167,16 @@ Dyno Dashboard Auto-Mail`
     });
 
     // Months descending (latest month on top)
-    const sortedMonths = Array.from(months).sort((a, b) => {
-      const timeA = monthLatestDateMap.get(a) || 0;
-      const timeB = monthLatestDateMap.get(b) || 0;
-      if (timeA && timeB && timeA !== timeB) {
-        return timeB - timeA;
-      }
-      return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
-    });
+    const sortedMonths = Array.from(months)
+      .filter(m => m && m !== 'Unknown')
+      .sort((a, b) => {
+        const timeA = monthLatestDateMap.get(a) || 0;
+        const timeB = monthLatestDateMap.get(b) || 0;
+        if (timeA && timeB && timeA !== timeB) {
+          return timeB - timeA;
+        }
+        return fyMonthOrder.indexOf(b) - fyMonthOrder.indexOf(a);
+      });
 
     return {
       months: sortedMonths,
