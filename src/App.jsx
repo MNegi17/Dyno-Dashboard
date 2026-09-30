@@ -1105,7 +1105,6 @@ Dyno Dashboard Auto-Mail`
       setUploadedFiles(deduplicated);
 
       // Set lastSyncTime from today's [REALTIME_SYNC] file or latest
-      const todayFileName = getTodayRealtimeFileName();
       const realtimeFile = formatted.find(f => f.name === todayFileName) || formatted.find(f => (f.name || '').startsWith('[REALTIME_SYNC]'));
       if (realtimeFile && realtimeFile.uploadDate) {
         setLastSyncTime(realtimeFile.uploadDate);
