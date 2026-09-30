@@ -129,7 +129,8 @@ const formatLUDate = (date) => {
   return `${day}/${month}/${year}`;
 };
 
-const CustomSelect = memo(({ value, options, onChange, placeholder }) => {
+const CustomSelect = memo(({ value, options = [], onChange, placeholder }) => {
+  const safeOptions = (options || []).filter(opt => opt && opt !== 'Unknown' && opt !== 'unknown');
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -161,7 +162,7 @@ const CustomSelect = memo(({ value, options, onChange, placeholder }) => {
           >
             {placeholder}
           </div>
-          {options.map(opt => (
+          {safeOptions.map(opt => (
             <div 
               key={opt}
               className={`custom-select-option ${value === opt ? 'selected' : ''}`}
@@ -177,6 +178,8 @@ const CustomSelect = memo(({ value, options, onChange, placeholder }) => {
 });
 
 const CustomMultiSelect = memo(({ values = [], options = [], onChange, placeholder }) => {
+  const safeOptions = (options || []).filter(opt => opt && opt !== 'Unknown' && opt !== 'unknown');
+  const safeValues = (values || []).filter(v => v && v !== 'Unknown' && v !== 'unknown');
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -198,13 +201,13 @@ const CustomMultiSelect = memo(({ values = [], options = [], onChange, placehold
     }
   };
 
-  const isAllSelected = !values || values.length === 0;
+  const isAllSelected = !safeValues || safeValues.length === 0;
 
   const displayValue = isAllSelected 
     ? placeholder 
-    : values.length === 1 
-      ? values[0] 
-      : `${values.length} Selected`;
+    : safeValues.length === 1 
+      ? safeValues[0] 
+      : `${safeValues.length} Selected`;
 
   return (
     <div className="custom-select-wrapper" ref={dropdownRef}>
@@ -238,8 +241,8 @@ const CustomMultiSelect = memo(({ values = [], options = [], onChange, placehold
             />
             <span>{placeholder}</span>
           </div>
-          {options.map(opt => {
-            const isSelected = values.includes(opt);
+          {safeOptions.map(opt => {
+            const isSelected = safeValues.includes(opt);
             return (
               <div 
                 key={opt}
@@ -527,6 +530,15 @@ Dyno Dashboard Auto-Mail`
 
   // Filters State
   const [selectedMonth, setSelectedMonth] = useState([]);
+
+  useEffect(() => {
+    if (selectedMonth && selectedMonth.some(m => m === 'Unknown' || m === 'unknown')) {
+      setSelectedMonth(prev => prev.filter(m => m !== 'Unknown' && m !== 'unknown'));
+    }
+    if (selectedMonthPrev && selectedMonthPrev.some(m => m === 'Unknown' || m === 'unknown')) {
+      setSelectedMonthPrev(prev => prev.filter(m => m !== 'Unknown' && m !== 'unknown'));
+    }
+  }, [selectedMonth, selectedMonthPrev]);
   const [selectedDate, setSelectedDate] = useState('All');
   const [selectedDivision, setSelectedDivision] = useState('All');
   const [selectedChannels, setSelectedChannels] = useState([]);
@@ -1701,15 +1713,18 @@ Dyno Dashboard Auto-Mail`
       .filter(file => 
         !(file.name || '').startsWith('[RETURN]') && 
         !(file.name || '').startsWith('[INVENTORY]') &&
-        !(file.name || '').startsWith('[LAUNCH_DATES]')
+        !(file.name || '').startsWith('[LAUNCH_DATES]') &&
+        !(file.name || '').startsWith('[CONFIG]')
       )
-      .flatMap(file => file.data);
+      .flatMap(file => file.data || [])
+      .filter(row => row && row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== '');
   }, [uploadedFiles]);
 
   const returnData = useMemo(() => {
     return uploadedFiles
       .filter(file => (file.name || '').startsWith('[RETURN]'))
-      .flatMap(file => file.data);
+      .flatMap(file => file.data || [])
+      .filter(row => row && row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== '');
   }, [uploadedFiles]);
 
   const latestInventoryData = useMemo(() => {
