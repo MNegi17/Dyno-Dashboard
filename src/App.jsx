@@ -677,18 +677,24 @@ Dyno Dashboard Auto-Mail`
               .eq('name', todayFileName);
             if (updatedFiles && updatedFiles.length > 0) {
               const item = updatedFiles[0];
-              const parsedRows = (item.data || []).map(row => ({
-                parsedDate: row.parsedDate ? new Date(row.parsedDate) : new Date(),
-                monthName: row.monthName || 'Unknown',
-                formattedDate: row.formattedDate || 'Unknown',
-                fy: row.fy || '2026',
-                priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
-                division: row.division || 'Unknown',
-                channel_name: normalizeChannelName(row.channel_name),
-                categories: row.categories || 'Unknown',
-                item_color: row.item_color || 'Unknown',
-                item_type_size: row.item_type_size || 'Unknown'
-              }));
+              const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+              const parsedRows = (item.data || []).map(row => {
+                const d = row.parsedDate ? new Date(row.parsedDate) : new Date();
+                const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
+                const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
+                return {
+                  parsedDate: d,
+                  monthName: mName,
+                  formattedDate: fDate,
+                  fy: row.fy || '2026',
+                  priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
+                  division: row.division || 'Unknown',
+                  channel_name: normalizeChannelName(row.channel_name),
+                  categories: row.categories || 'Unknown',
+                  item_color: row.item_color || 'Unknown',
+                  item_type_size: row.item_type_size || 'Unknown'
+                };
+              });
 
               setUploadedFiles(prev => {
                 const exists = prev.some(f => f.id === item.id);
@@ -718,14 +724,15 @@ Dyno Dashboard Auto-Mail`
               parsedDate: d,
               monthName: mName,
               formattedDate: fDate,
-            fy: row.fy || '2026',
-            priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
-            division: row.division || 'Unknown',
-            channel_name: normalizeChannelName(row.channel_name),
-            categories: row.categories || 'Unknown',
-            item_color: row.item_color || 'Unknown',
-            item_type_size: row.item_type_size || 'Unknown'
-          }));
+              fy: row.fy || '2026',
+              priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
+              division: row.division || 'Unknown',
+              channel_name: normalizeChannelName(row.channel_name),
+              categories: row.categories || 'Unknown',
+              item_color: row.item_color || 'Unknown',
+              item_type_size: row.item_type_size || 'Unknown'
+            };
+          });
 
           setUploadedFiles(prev => {
             const exists = prev.some(f => f.name === todayFileName);
