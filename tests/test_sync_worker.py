@@ -2,7 +2,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, mock_open
 import sync_worker as sync
 
 
@@ -12,6 +12,19 @@ class SyncTests(unittest.TestCase):
         for name, day, month, year, uploaded, expected in cases:
             with self.subTest(name=name, day=day, uploaded=uploaded):
                 self.assertEqual(sync.does_manual_file_cover_date(name, day, month, year, uploaded), expected)
+
+    def test_nested_catalog_supplies_category_division_and_size(self):
+        directory = {'by_sku': {'sku-1': {'categories': 'FLIP FLOPS', 'division': 'FOOTWEAR', 'size': '9'}},
+                     'by_color': {'style-red': {'categories': 'TSHIRT', 'division': 'APPAREL'}}}
+        with patch.object(sync, '_item_directory_cache', {}), patch('builtins.open', mock_open(read_data=json.dumps(directory))):
+            self.assertEqual(len(sync.load_item_directory()), 2)
+            self.assertEqual(sync.lookup_item_details('sku-1', ''), ('FLIP FLOPS', 'FOOTWEAR'))
+            self.assertEqual(sync.lookup_item_details('', 'style-red'), ('TSHIRT', 'APPAREL'))
+            order = {'code': 'order-1', 'created': '2026-10-01T01:00:00Z', 'channel': 'MYNTRA',
+                     'saleOrderItems': [{'code': 'item-1', 'itemSku': 'sku-1', 'sellingPrice': 50, 'mrp': 100}]}
+            row = sync.transform_all_orders([order])[0]
+            self.assertEqual((row['categories'], row['division'], row['item_type_size'], row['itemSku']),
+                             ('FLIP FLOPS', 'FOOTWEAR', '9', 'sku-1'))
 
     def test_ist_midnight_and_year_rollover(self):
         now = datetime(2026, 10, 4, 18, 30, tzinfo=timezone.utc)

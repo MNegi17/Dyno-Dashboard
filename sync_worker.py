@@ -224,7 +224,8 @@ def load_item_directory():
         if os.path.exists(p):
             try:
                 with open(p, "r", encoding="utf-8") as f:
-                    _item_directory_cache = json.load(f)
+                    directory = json.load(f)
+                    _item_directory_cache = {**directory.get("by_color", {}), **directory.get("by_sku", {})} if "by_sku" in directory else directory
                 print(f"[Python Sync Worker] Loaded {len(_item_directory_cache)} SKUs from Item Directory")
                 break
             except Exception as e:
@@ -354,7 +355,8 @@ def transform_all_orders(orders):
                 item_color = item_sku or "Unknown"
 
             cat, div = lookup_item_details(item_sku, item_color)
-            size = it.get("size") or "Unknown"
+            directory_entry = load_item_directory().get(item_sku) or load_item_directory().get(item_color) or {}
+            size = it.get("size") or directory_entry.get("size") or "Unknown"
 
             rows.append({
                 "fy": fy,
@@ -369,6 +371,7 @@ def transform_all_orders(orders):
                 "item_color": item_color,
                 "item_type_size": str(size),
                 "mrp": raw_mrp,
+                "itemSku": item_sku,
                 "orderCode": o.get("code"),
                 "orderItemCode": str(it.get("code") or "")
             })
