@@ -129,3 +129,5 @@ The Python worker uses the same Purple United Uniware tenant as the dashboard. R
 Manual sales coverage must match the month and year; legacy filenames without a year use their upload year. Spreadsheet part numbers do not count as dates. Covered sync archives are retained, and dashboard reads never delete them. Explicit user-deleted dates remain excluded. Incomplete API responses fail the run instead of overwriting saved data.
 
 Verification: `python -m unittest discover -s tests -p "test_*.py"`, `node --test tests/*.test.js`, and `npm run build`. `/api/health` reports the deployed sync revision without starting a sync.
+
+Redundant sync copies are preserved under `[CONFIG] duplicate archive ...` names after a successful complete write. They are excluded from dashboard totals but retain their original data and IDs for recovery.

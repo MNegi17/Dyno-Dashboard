@@ -469,6 +469,21 @@ def purge_sync_file_from_supabase(file_name, admin_token):
     except Exception as e:
         print(f"[Supabase Purge] Failed to delete '{file_name}': {e}")
 
+def archive_duplicate_sync_files(file_name, duplicate_files, admin_token):
+    """Keep redundant copies intact under a hidden recovery name; never delete data."""
+    for duplicate in duplicate_files:
+        file_id = duplicate["id"]
+        archive_name = f"[CONFIG] duplicate archive {file_name} {file_id}"
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
+            data=json.dumps({"name": archive_name}).encode("utf-8"),
+            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
+            method="PATCH"
+        )
+        with urllib.request.urlopen(req, timeout=30):
+            print(f"[Sync Archive] Preserved redundant copy {file_id} of {file_name}")
+
+
 def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, days_ago=1, now=None):
     reconciled_any = False
 
@@ -540,8 +555,8 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, da
         print(f"[Audit Engine] Comparison for {file_name}: Uniware Orders = {uniware_total_orders}, Stored Orders = {stored_unique_orders} (Stored Units = {stored_record_count}), Discrepancy = {diff} orders")
 
         # 6. Repair any discrepancy (or force / empty) using the full IST day
-        if diff > threshold_diff or force or (stored_record_count == 0):
-            print(f"[Audit Engine] Discrepancy of {diff} > threshold {threshold_diff}. Commencing full 24-hour ingestion from Uniware...")
+        if diff > threshold_diff or force or stored_record_count == 0 or len(existing_realtime) > 1:
+            print(f"[Audit Engine] Refreshing full day: discrepancy={diff}, force={force}, files={len(existing_realtime)}")
             order_codes = search_all_uniware_orders(from_date, to_date)
             if not order_codes:
                 raise RuntimeError("Search returned no orders despite a positive Uniware count")
@@ -568,19 +583,8 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, da
                         print(f"[Audit Engine] Successfully reconciled {file_name} with {len(rows)} units across {len(orders)} orders in Supabase!")
                         reconciled_any = True
                     
-                    # Clean up any duplicate records for this date
-                    if len(existing_realtime) > 1:
-                        dup_ids = ",".join(str(f['id']) for f in existing_realtime[1:])
-                        del_req = urllib.request.Request(
-                            f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
-                            headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
-                            method="DELETE"
-                        )
-                        try:
-                            with urllib.request.urlopen(del_req, timeout=30) as d_resp:
-                                print(f"[Audit Engine] Cleaned up {len(existing_realtime)-1} duplicate records for {file_name}")
-                        except Exception as de:
-                            print(f"[Audit Engine] Could not delete duplicates: {de}")
+                    archive_duplicate_sync_files(file_name, existing_realtime[1:], admin_token)
+
                 else:
                     insert_req = urllib.request.Request(
                         f"{SUPABASE_URL}/rest/v1/uploaded_files",
@@ -652,19 +656,8 @@ def _execute_today_sync():
         with urllib.request.urlopen(update_req, timeout=30) as resp:
             print(f"[Python Sync] Successfully updated '{file_name}' ({len(rows)} rows) in Supabase!")
 
-        # Clean up any duplicate records for this date
-        if len(existing) > 1:
-            dup_ids = ",".join(str(f['id']) for f in existing[1:])
-            del_req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
-                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
-                method="DELETE"
-            )
-            try:
-                with urllib.request.urlopen(del_req, timeout=30) as d_resp:
-                    print(f"[Python Sync] Cleaned up {len(existing)-1} duplicate records for {file_name}")
-            except Exception as de:
-                print(f"[Python Sync] Could not delete duplicates: {de}")
+        archive_duplicate_sync_files(file_name, existing[1:], admin_token)
+
     else:
         insert_req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/uploaded_files",

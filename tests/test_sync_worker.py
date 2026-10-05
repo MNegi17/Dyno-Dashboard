@@ -2,7 +2,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import patch, mock_open, MagicMock
 import sync_worker as sync
 
 
@@ -25,6 +25,27 @@ class SyncTests(unittest.TestCase):
             row = sync.transform_all_orders([order])[0]
             self.assertEqual((row['categories'], row['division'], row['item_type_size'], row['itemSku']),
                              ('FLIP FLOPS', 'FOOTWEAR', '9', 'sku-1'))
+
+    @patch.object(sync, 'get_deleted_sync_dates', return_value=set())
+    @patch.object(sync, 'get_uniware_order_count', return_value=1)
+    @patch.object(sync, 'search_all_uniware_orders', return_value=['order-1'])
+    @patch.object(sync, 'fetch_orders_concurrently', return_value=[{'code': 'order-1'}])
+    @patch.object(sync, 'transform_all_orders', return_value=[{'orderCode': 'order-1'}])
+    @patch.object(sync.urllib.request, 'urlopen')
+    def test_duplicate_archive_preserved_even_when_count_matches(self, urlopen, transform, fetch, search, count, deleted):
+        files = [{'id': str(i), 'name': '[REALTIME_SYNC] 04 Oct 2026', 'record_count': 1} for i in (1, 2)]
+        bodies = [files, [{'data': [{'orderCode': 'order-1'}]}], {}, {}]
+        responses = []
+        for body in bodies:
+            response = MagicMock()
+            response.__enter__.return_value.read.return_value = json.dumps(body).encode()
+            responses.append(response)
+        urlopen.side_effect = responses
+        self.assertTrue(sync.audit_and_reconcile_yesterday('token', now=datetime(2026, 10, 5, 12, tzinfo=timezone.utc)))
+        self.assertEqual([c.args[0].get_method() for c in urlopen.call_args_list], ['GET', 'GET', 'PATCH', 'PATCH'])
+        archive = urlopen.call_args_list[-1].args[0]
+        self.assertIn('id=eq.2', archive.full_url)
+        self.assertEqual(json.loads(archive.data), {'name': '[CONFIG] duplicate archive [REALTIME_SYNC] 04 Oct 2026 2'})
 
     def test_ist_midnight_and_year_rollover(self):
         now = datetime(2026, 10, 4, 18, 30, tzinfo=timezone.utc)

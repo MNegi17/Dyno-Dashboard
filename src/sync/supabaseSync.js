@@ -121,6 +121,14 @@ export async function markSyncDateAsDeleted(dateStr) {
 /**
  * Execute real-time Uniware ingestion and persist to Supabase
  */
+async function archiveDuplicateSyncFiles(fileName, files) {
+  for (const file of files) {
+    await supabase.from('uploaded_files')
+      .update({ name: `[CONFIG] duplicate archive ${fileName} ${file.id}` })
+      .eq('id', file.id).throwOnError();
+  }
+}
+
 let _syncInProgressPromise = null;
 let _reconcileInProgressPromise = null;
 
@@ -210,15 +218,7 @@ async function _executeSyncRealtimeSales(options = {}) {
       })
       .eq('id', primaryId).throwOnError();
 
-    // If multiple duplicate rows exist for this exact name, delete all duplicates immediately
-    if (existingFiles.length > 1) {
-      const duplicateIds = existingFiles.slice(1).map(f => f.id);
-      await supabase
-        .from('uploaded_files')
-        .delete()
-        .in('id', duplicateIds).throwOnError();
-      console.log(`[RealtimeSync] Cleaned up ${duplicateIds.length} duplicate entries for ${fileName}`);
-    }
+    await archiveDuplicateSyncFiles(fileName, existingFiles.slice(1));
   } else {
     await supabase
       .from('uploaded_files')
@@ -424,14 +424,7 @@ async function _executeReconcileYesterday(options = {}) {
             .update(newFileEntry)
             .eq('id', primaryId).throwOnError();
 
-          if (currentFiles.length > 1) {
-            const duplicateIds = currentFiles.slice(1).map(f => f.id);
-            await supabase
-              .from('uploaded_files')
-              .delete()
-              .in('id', duplicateIds).throwOnError();
-            console.log(`[Client Reconcile] Purged ${duplicateIds.length} duplicate entries for ${fileName}`);
-          }
+          await archiveDuplicateSyncFiles(fileName, currentFiles.slice(1));
           console.log(`[Client Reconcile] Successfully updated ${fileName} with ${normalizedRows.length} units!`);
         } else {
           await supabase
