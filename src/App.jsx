@@ -1065,17 +1065,19 @@ Dyno Dashboard Auto-Mail`
       const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
       // Strictly deduplicate by file name, and filter out obsolete/deleted past sync files
+      const finalizedDates = new Set(userFilesData.filter(f => (f.name || '').startsWith('[DAILY_SYNC]')).map(f => f.name.replace('[DAILY_SYNC]', '').trim()));
       const seenFileNames = new Set();
       const deduplicated = [];
 
       formatted.forEach(f => {
         const name = f.name || '';
         
-        // If it's a [REALTIME_SYNC] file
-        if (name.startsWith('[REALTIME_SYNC]')) {
+        // Finalized snapshots supersede the previous live file without deleting it.
+        if (name.startsWith('[REALTIME_SYNC]') && finalizedDates.has(name.replace('[REALTIME_SYNC]', '').trim())) return;
+        if (name.startsWith('[REALTIME_SYNC]') || name.startsWith('[DAILY_SYNC]')) {
           if (name !== todayFileName) {
             // Check if this past sync date was deleted by the user or covered by a manual verified file
-            const match = name.match(/\[REALTIME_SYNC\]\s*(\d{1,2})\s*([A-Za-z]{3})\s*(\d{4})/);
+            const match = name.match(/\[(?:REALTIME|DAILY)_SYNC\]\s*(\d{1,2})\s*([A-Za-z]{3})\s*(\d{4})/);
             if (match) {
               const day = parseInt(match[1], 10);
               const mStr = match[2].toLowerCase();
@@ -1083,7 +1085,7 @@ Dyno Dashboard Auto-Mail`
               const year = parseInt(match[3], 10);
               const dateKey = `${match[1].padStart(2, '0')} ${match[2]} ${year}`;
 
-              const isDeleted = deletedDatesSet.has(dateKey) || deletedDatesSet.has(name.replace('[REALTIME_SYNC]', '').trim());
+              const isDeleted = deletedDatesSet.has(dateKey) || deletedDatesSet.has(name.replace(/^\[(?:REALTIME|DAILY)_SYNC\]\s*/, '').trim());
               const isCoveredByManual = userFilesData.some(mf => doesManualFileCoverDate(mf.name, day, month0, year, mf.upload_date));
 
               if (isDeleted || isCoveredByManual) {
@@ -2891,7 +2893,7 @@ Dyno Dashboard Auto-Mail`
 
   const handleDeleteFile = async (fileId) => {
     const fileToDelete = uploadedFiles.find(f => f.id === fileId);
-    if (fileToDelete && (fileToDelete.name || '').startsWith('[REALTIME_SYNC]')) {
+    if (fileToDelete && /^\[(?:REALTIME|DAILY)_SYNC\]/.test(fileToDelete.name || '')) {
       const todayFileName = getTodayRealtimeFileName();
       if (fileToDelete.name !== todayFileName) {
         // Record permanent deletion of this past sync date

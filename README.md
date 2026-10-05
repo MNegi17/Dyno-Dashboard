@@ -131,3 +131,5 @@ Manual sales coverage must match the month and year; legacy filenames without a 
 Verification: `python -m unittest discover -s tests -p "test_*.py"`, `node --test tests/*.test.js`, and `npm run build`. `/api/health` reports the deployed sync revision without starting a sync.
 
 Redundant sync copies are preserved under `[CONFIG] duplicate archive ...` names after a successful complete write. They are excluded from dashboard totals but retain their original data and IDs for recovery.
+
+Completed IST days are stored as `[DAILY_SYNC] DD Mon YYYY`; only today uses `[REALTIME_SYNC]`. This isolates historical snapshots from legacy clients that clean up old live files. A finalized snapshot takes precedence over any remaining live copy, so totals are not doubled. Existing manual files and explicit user deletions still take precedence.

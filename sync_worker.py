@@ -420,14 +420,15 @@ def get_day_window_ist(days_ago=1, now=None):
 
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     date_str = f"{target_ist.day:02d} {months[target_ist.month - 1]} {target_ist.year}"
-    file_name = f"[REALTIME_SYNC] {date_str}"
+    prefix = "[DAILY_SYNC]" if days_ago > 0 else "[REALTIME_SYNC]"
+    file_name = f"{prefix} {date_str}"
 
     return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"), file_name, date_str, target_ist
 
 def does_manual_file_cover_date(fname, target_day, target_month, target_year, upload_date=None):
     """Only explicit sales dates qualify; part numbers are never calendar dates."""
     fn = re.sub(r"\s*\(part \d+/\d+\)", "", (fname or "").lower()).strip()
-    if (fn.startswith(("[realtime_sync]", "[inventory]", "[launch_dates]", "[return]", "[config]"))
+    if (fn.startswith(("[realtime_sync]", "[daily_sync]", "[inventory]", "[launch_dates]", "[return]", "[config]"))
             or re.search(r"cancel|return|fy\d+", fn)):
         return False
     months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]

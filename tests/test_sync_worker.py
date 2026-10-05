@@ -33,7 +33,7 @@ class SyncTests(unittest.TestCase):
     @patch.object(sync, 'transform_all_orders', return_value=[{'orderCode': 'order-1'}])
     @patch.object(sync.urllib.request, 'urlopen')
     def test_duplicate_archive_preserved_even_when_count_matches(self, urlopen, transform, fetch, search, count, deleted):
-        files = [{'id': str(i), 'name': '[REALTIME_SYNC] 04 Oct 2026', 'record_count': 1} for i in (1, 2)]
+        files = [{'id': str(i), 'name': '[DAILY_SYNC] 04 Oct 2026', 'record_count': 1} for i in (1, 2)]
         bodies = [files, [{'data': [{'orderCode': 'order-1'}]}], {}, {}]
         responses = []
         for body in bodies:
@@ -45,14 +45,15 @@ class SyncTests(unittest.TestCase):
         self.assertEqual([c.args[0].get_method() for c in urlopen.call_args_list], ['GET', 'GET', 'PATCH', 'PATCH'])
         archive = urlopen.call_args_list[-1].args[0]
         self.assertIn('id=eq.2', archive.full_url)
-        self.assertEqual(json.loads(archive.data), {'name': '[CONFIG] duplicate archive [REALTIME_SYNC] 04 Oct 2026 2'})
+        self.assertEqual(json.loads(archive.data), {'name': '[CONFIG] duplicate archive [DAILY_SYNC] 04 Oct 2026 2'})
 
     def test_ist_midnight_and_year_rollover(self):
         now = datetime(2026, 10, 4, 18, 30, tzinfo=timezone.utc)
         start, end, name, *_ = sync.get_day_window_ist(1, now)
-        self.assertEqual((start, end, name), ('2026-10-03T18:30:00.000Z', '2026-10-04T18:29:59.999Z', '[REALTIME_SYNC] 04 Oct 2026'))
+        self.assertFalse(name.startswith('[REALTIME_SYNC]'))  # Legacy cleanup cannot target finalized history.
+        self.assertEqual((start, end, name), ('2026-10-03T18:30:00.000Z', '2026-10-04T18:29:59.999Z', '[DAILY_SYNC] 04 Oct 2026'))
         now = datetime(2026, 12, 31, 18, 30, tzinfo=timezone.utc)
-        self.assertEqual(sync.get_day_window_ist(1, now)[2], '[REALTIME_SYNC] 31 Dec 2026')
+        self.assertEqual(sync.get_day_window_ist(1, now)[2], '[DAILY_SYNC] 31 Dec 2026')
 
     @patch.object(sync, 'audit_and_reconcile_yesterday')
     def test_catchup_visits_all_seven_days_despite_failure(self, audit):

@@ -78,7 +78,7 @@ export async function getDeletedSyncDates() {
  */
 export async function markSyncDateAsDeleted(dateStr) {
   if (!dateStr) return;
-  const cleanDateStr = dateStr.replace('[REALTIME_SYNC]', '').trim();
+  const cleanDateStr = dateStr.replace(/^\[(?:REALTIME|DAILY)_SYNC\]\s*/, '').trim();
   try {
     const { data: existing } = await supabase
       .from('uploaded_files')
@@ -292,7 +292,7 @@ export function getPastDayWindowIST(daysAgo = 1) {
   const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const monthName = monthShort[month];
   const dateStr = `${dayStr} ${monthName} ${year}`;
-  const fileName = `[REALTIME_SYNC] ${dateStr}`;
+  const fileName = `[DAILY_SYNC] ${dateStr}`;
 
   return {
     fromDate: new Date(startUtcMs).toISOString(),

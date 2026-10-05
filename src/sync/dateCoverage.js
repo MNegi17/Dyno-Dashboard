@@ -1,7 +1,7 @@
 /** Match explicit sales dates, ignoring spreadsheet part numbers. */
 export function doesManualFileCoverDate(fileName, day, month0, year, uploadDate) {
   const fn = (fileName || '').toLowerCase().replace(/\s*\(part \d+\/\d+\)/g, '').trim();
-  if (/^\[(realtime_sync|inventory|launch_dates|return|config)\]/.test(fn) || /cancel|return|fy\d+/.test(fn)) return false;
+  if (/^\[(realtime_sync|daily_sync|inventory|launch_dates|return|config)\]/.test(fn) || /cancel|return|fy\d+/.test(fn)) return false;
   const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
   const month = months[month0];
   if (!month) return false;

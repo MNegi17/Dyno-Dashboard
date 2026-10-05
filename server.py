@@ -553,7 +553,7 @@ def start_background_sync_worker():
 
 @app.route('/api/health', methods=['GET'])
 def health_route():
-    return jsonify({"status": "ok", "sync_revision": "daily-retention-v2"})
+    return jsonify({"status": "ok", "sync_revision": "daily-retention-v3"})
 
 @app.route('/api/sync', methods=['GET', 'POST'])
 def trigger_realtime_sync_route():
