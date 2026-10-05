@@ -1,3 +1,5 @@
+import { doesManualFileCoverDate } from './dateCoverage.js';
+export { doesManualFileCoverDate } from './dateCoverage.js';
 import { supabase } from '../supabaseClient.js';
 import { searchSaleOrders, fetchSaleOrdersWithConcurrency } from '../uniware/ordersClient.js';
 import { transformRealtimeOrders } from '../sales/realtimeTransform.js';
@@ -115,48 +117,6 @@ export async function markSyncDateAsDeleted(dateStr) {
 /**
  * Check if an uploaded manual Excel sales file covers a specific date
  */
-export function doesManualFileCoverDate(fileName, day, month0, year) {
-  const fn = (fileName || '').toLowerCase();
-  if (
-    fn.startsWith('[realtime_sync]') ||
-    fn.startsWith('[inventory]') ||
-    fn.startsWith('[launch_dates]') ||
-    fn.startsWith('[return]') ||
-    fn.startsWith('[config]') ||
-    fn.includes('cancellation') ||
-    fn.includes('fy25')
-  ) {
-    return false;
-  }
-
-  const monthNamesLong = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-  const monthNamesShort = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-  const yLong = monthNamesLong[month0];
-  const yShort = monthNamesShort[month0];
-
-  // Monthly reco check: e.g. [RECO] August 2026 Reconciled Sales
-  if (fn.includes('[reco]') && (fn.includes(yLong) || fn.includes(yShort))) {
-    return true; // covers all days of that month
-  }
-
-  if (!fn.includes(yLong) && !fn.includes(yShort) && !fn.includes('.xlsx')) {
-    return false;
-  }
-
-  // 1. Range check: (18-20), 18-20, 29-30, (4-6)
-  const rangeMatches = [...fn.matchAll(/\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?/g)];
-  for (const m of rangeMatches) {
-    const startD = parseInt(m[1], 10);
-    const endD = parseInt(m[2], 10);
-    if (startD <= day && day <= endD) {
-      return true;
-    }
-  }
-
-  // 2. Exact single day match: 22-September, 21-September, 28-July
-  const singleRegex = new RegExp('(^|[^\\d])0?' + day + '([^\\d]|$)');
-  return singleRegex.test(fn);
-}
 
 /**
  * Execute real-time Uniware ingestion and persist to Supabase
@@ -195,7 +155,7 @@ async function _executeSyncRealtimeSales(options = {}) {
   const fromDate = getTodayStartIST();
   const fileName = getTodayRealtimeFileName();
   const now = Date.now();
-  const toDate = new Date(now - 60000).toISOString(); // 1-minute buffer
+  const toDate = new Date(Math.max(now - 60000, Date.parse(fromDate))).toISOString(); // 1-minute buffer
 
   console.log(`[RealtimeSync] Daily window starting ${fromDate} to ${toDate} (Target: ${fileName})...`);
 
@@ -217,6 +177,7 @@ async function _executeSyncRealtimeSales(options = {}) {
   // 2. Fetch full details with concurrency
   const fetchResult = await fetchSaleOrdersWithConcurrency(orderCodes, 5);
   const orders = fetchResult.orders || [];
+  if (fetchResult.failures?.length || orders.length !== orderCodes.length) throw new Error("Incomplete order fetch; preserving stored data");
 
   // 3. Transform to Dyno Normalized Sales Rows with live catalog enrichment & dynamic SP
   const normalizedRows = await transformRealtimeOrders(orders);
@@ -231,12 +192,13 @@ async function _executeSyncRealtimeSales(options = {}) {
   };
 
   // Upsert or replace existing [REALTIME_SYNC] entry in uploaded_files (strictly 1 record per name)
-  const { data: existingFiles } = await supabase
+  const { data: existingFiles, error: existingError } = await supabase
     .from('uploaded_files')
     .select('id, upload_date')
     .eq('name', fileName)
     .order('upload_date', { ascending: false });
 
+  if (existingError) throw existingError;
   if (existingFiles && existingFiles.length > 0) {
     const primaryId = existingFiles[0].id;
     await supabase
@@ -246,7 +208,7 @@ async function _executeSyncRealtimeSales(options = {}) {
         record_count: newFileEntry.record_count,
         data: newFileEntry.data
       })
-      .eq('id', primaryId);
+      .eq('id', primaryId).throwOnError();
 
     // If multiple duplicate rows exist for this exact name, delete all duplicates immediately
     if (existingFiles.length > 1) {
@@ -254,13 +216,13 @@ async function _executeSyncRealtimeSales(options = {}) {
       await supabase
         .from('uploaded_files')
         .delete()
-        .in('id', duplicateIds);
+        .in('id', duplicateIds).throwOnError();
       console.log(`[RealtimeSync] Cleaned up ${duplicateIds.length} duplicate entries for ${fileName}`);
     }
   } else {
     await supabase
       .from('uploaded_files')
-      .insert([newFileEntry]);
+      .insert([newFileEntry]).throwOnError();
   }
 
   // 5. Also upsert into dedicated realtime_sales table if table exists
@@ -324,7 +286,7 @@ export function getPastDayWindowIST(daysAgo = 1) {
   const date = targetDate.getUTCDate();
 
   const startUtcMs = Date.UTC(year, month, date, 0, 0, 0) - istOffsetMs;
-  const endUtcMs = Date.UTC(year, month, date, 23, 59, 59) - istOffsetMs;
+  const endUtcMs = Date.UTC(year, month, date, 23, 59, 59, 999) - istOffsetMs;
 
   const dayStr = date.toString().padStart(2, '0');
   const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -346,11 +308,9 @@ export function getPastDayWindowIST(daysAgo = 1) {
 /**
  * Client-Side Audit & Reconciliation Engine:
  * When anyone opens or reloads the dashboard, audits yesterday against Uniware.
- * If deleted by user or covered by a manual file, skips reconciliation and purges obsolete sync file.
+ * If deleted by user or covered by a manual file, skips reconciliation while retaining the archived sync file.
  */
 export async function reconcileYesterdayClientSide(options = {}) {
-  const { threshold = 10, force = false } = options;
-
   if (_reconcileInProgressPromise) {
     console.log('[Client Reconcile] Reconciliation already in progress, returning active promise...');
     return _reconcileInProgressPromise;
@@ -368,7 +328,7 @@ export async function reconcileYesterdayClientSide(options = {}) {
 }
 
 async function _executeReconcileYesterday(options = {}) {
-  const { threshold = 10, force = false } = options;
+  const { threshold = 0, force = false } = options;
   const daysToCheck = [1];
   const results = [];
 
@@ -399,11 +359,10 @@ async function _executeReconcileYesterday(options = {}) {
       }
 
       // 3. Check if a manual verified Excel file covers this date
-      const manualFile = allFiles.find(f => doesManualFileCoverDate(f.name, day, month, year));
+      const manualFile = allFiles.find(f => doesManualFileCoverDate(f.name, day, month, year, f.upload_date));
 
       if (manualFile && !force) {
-        console.log(`[Client Reconcile] Manual file exists for ${fileName}: '${manualFile.name}'. Purging sync file and skipping.`);
-        await supabase.from('uploaded_files').delete().eq('name', fileName);
+        console.log(`[Client Reconcile] Manual file exists for ${fileName}: '${manualFile.name}'. Keeping archive and skipping.`);
         continue;
       }
 
@@ -440,6 +399,7 @@ async function _executeReconcileYesterday(options = {}) {
         console.log(`[Client Reconcile] Discrepancy (${diff} > ${threshold}). Ingesting full 24-hour dataset from Uniware for ${fileName}...`);
         const fetchResult = await fetchSaleOrdersWithConcurrency(orderCodes, 6);
         const orders = fetchResult.orders || [];
+        if (fetchResult.failures?.length || orders.length !== orderCodes.length) throw new Error("Incomplete order fetch; preserving stored data");
         const normalizedRows = await transformRealtimeOrders(orders);
 
         const newFileEntry = {
@@ -450,32 +410,33 @@ async function _executeReconcileYesterday(options = {}) {
         };
 
         // Direct fresh query for existing file records to prevent any race condition
-        const { data: currentFiles } = await supabase
+        const { data: currentFiles, error: currentError } = await supabase
           .from('uploaded_files')
           .select('id, upload_date')
           .eq('name', fileName)
           .order('upload_date', { ascending: false });
 
+        if (currentError) throw currentError;
         if (currentFiles && currentFiles.length > 0) {
           const primaryId = currentFiles[0].id;
           await supabase
             .from('uploaded_files')
             .update(newFileEntry)
-            .eq('id', primaryId);
+            .eq('id', primaryId).throwOnError();
 
           if (currentFiles.length > 1) {
             const duplicateIds = currentFiles.slice(1).map(f => f.id);
             await supabase
               .from('uploaded_files')
               .delete()
-              .in('id', duplicateIds);
+              .in('id', duplicateIds).throwOnError();
             console.log(`[Client Reconcile] Purged ${duplicateIds.length} duplicate entries for ${fileName}`);
           }
           console.log(`[Client Reconcile] Successfully updated ${fileName} with ${normalizedRows.length} units!`);
         } else {
           await supabase
             .from('uploaded_files')
-            .insert([newFileEntry]);
+            .insert([newFileEntry]).throwOnError();
           console.log(`[Client Reconcile] Successfully created ${fileName} with ${normalizedRows.length} units!`);
         }
 

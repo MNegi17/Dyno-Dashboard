@@ -61,10 +61,11 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
         }
 
         const data = await response.json();
-        const elements = data.elements || [];
+        if (data.successful === false || !Array.isArray(data.elements)) throw new Error("Uniware rejected order search");
+        const elements = data.elements;
         allElements.push(...elements);
 
-        if (elements.length < displayLength || allElements.length >= (data.totalRecords || 0)) {
+        if (elements.length < displayLength || (data.totalRecords != null && allElements.length >= data.totalRecords)) {
           hasMore = false;
         } else {
           displayStart += displayLength;
@@ -73,7 +74,7 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
       } catch (err) {
         if (attempts >= 3) {
           console.error(`[Uniware Search] Failed page at ${displayStart} after 3 attempts:`, err.message);
-          hasMore = false;
+          throw new Error(`Order search failed at offset ${displayStart}; refusing partial sync`, { cause: err });
         } else {
           invalidateToken();
           token = await getAccessToken(true);

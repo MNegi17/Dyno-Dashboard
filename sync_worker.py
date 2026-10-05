@@ -7,9 +7,13 @@ import urllib.parse
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import re
+import threading
+import argparse
 
 # Configuration
-UNIWARE_URL = "https://dyno.unicommerce.com"
+UNIWARE_URL = os.environ.get("UNIWARE_URL", "https://purpleunited.unicommerce.com").rstrip("/")
+UNIWARE_USERNAME = os.environ.get("UNIWARE_USERNAME", "ecommerce@purpleunited.in")
+UNIWARE_PASSWORD = os.environ.get("UNIWARE_PASSWORD", "Toothless@2024@")
 SUPABASE_URL = "https://vvruwxrhwppozvrprcix.supabase.co"
 SUPABASE_KEY = "sb_publishable_wEN47XUvThFsrpIZcPX35A_xkPbdJQ1"
 ADMIN_EMAIL = "manannegi17@gmail.com"
@@ -58,6 +62,7 @@ def get_deleted_sync_dates(admin_token):
                 return set(data[0]["data"])
     except Exception as e:
         print(f"[Sync Config] Error reading deleted sync dates: {e}")
+        raise
     return set()
 
 _uniware_token_cache = None
@@ -69,7 +74,9 @@ def get_uniware_token(force_refresh=False):
     if not force_refresh and _uniware_token_cache and now < _uniware_token_expiry:
         return _uniware_token_cache
 
-    url = f"{UNIWARE_URL}/oauth/token?grant_type=password&client_id=my-trusted-client&username=support@dyno.in&password=User@123"
+    query = urllib.parse.urlencode({"grant_type": "password", "client_id": "my-trusted-client",
+                                    "username": UNIWARE_USERNAME, "password": UNIWARE_PASSWORD})
+    url = f"{UNIWARE_URL}/oauth/token?{query}"
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
 
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -145,11 +152,13 @@ def search_all_uniware_orders(from_date, to_date):
             try:
                 with urllib.request.urlopen(req, timeout=45) as resp:
                     data = json.loads(resp.read().decode('utf-8'))
-                    elements = data.get("elements", [])
-                    total_records = data.get("totalRecords", 0)
+                    if data.get("successful") is False or "elements" not in data:
+                        raise RuntimeError("Uniware rejected order search")
+                    elements = data["elements"]
+                    total_records = data.get("totalRecords")
                     all_codes.extend([el["code"] for el in elements if "code" in el])
 
-                    if len(elements) < display_length or len(all_codes) >= total_records:
+                    if len(elements) < display_length or (total_records is not None and len(all_codes) >= total_records):
                         has_more = False
                     else:
                         display_start += display_length
@@ -157,12 +166,14 @@ def search_all_uniware_orders(from_date, to_date):
             except Exception as e:
                 print(f"[Python Sync Worker] Search attempt {attempts} failed at {display_start}: {e}")
                 if attempts >= 3:
-                    has_more = False
+                    raise RuntimeError(f"Order search failed at offset {display_start}; refusing partial sync") from e
                 else:
                     token = get_uniware_token(force_refresh=True)
                     time.sleep(1.0 * attempts)
 
-    return all_codes
+    if total_records is not None and len(set(all_codes)) < total_records:
+        raise RuntimeError("Order search returned fewer orders than Uniware reported")
+    return list(dict.fromkeys(all_codes))
 
 def fetch_single_order(code, max_retries=2):
     attempts = 0
@@ -193,6 +204,8 @@ def fetch_orders_concurrently(order_codes, max_workers=8):
         for res in results:
             if res:
                 orders.append(res)
+    if len(orders) != len(order_codes):
+        raise RuntimeError(f"Fetched {len(orders)} of {len(order_codes)} orders; preserving stored data")
     return orders
 
 _item_directory_cache = {}
@@ -384,62 +397,62 @@ def get_uniware_order_count(from_date, to_date):
             })
             with urllib.request.urlopen(req, timeout=25) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
-                return int(data.get("totalRecords", 0))
+                if data.get("successful") is False or "totalRecords" not in data:
+                    raise RuntimeError("Uniware returned an invalid order count")
+                return int(data["totalRecords"])
         except Exception as e:
             print(f"[Uniware Count Attempt {attempt+1}] Error: {e}")
             token = get_uniware_token(force_refresh=True)
             time.sleep(1)
-    return 0
+    raise RuntimeError("Unable to retrieve Uniware order count")
 
-def get_day_window_ist(days_ago=1):
-    now = datetime.now(timezone.utc)
+def get_day_window_ist(days_ago=1, now=None):
+    now = now or datetime.now(timezone.utc)
     ist_offset = timedelta(hours=5, minutes=30)
     ist_now = now + ist_offset
     target_ist = ist_now - timedelta(days=days_ago)
 
     start_utc = datetime(target_ist.year, target_ist.month, target_ist.day, 0, 0, 0, tzinfo=timezone.utc) - ist_offset
-    end_utc = datetime(target_ist.year, target_ist.month, target_ist.day, 23, 59, 59, tzinfo=timezone.utc) - ist_offset
+    end_utc = datetime(target_ist.year, target_ist.month, target_ist.day, 23, 59, 59, 999000, tzinfo=timezone.utc) - ist_offset
 
     months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
     date_str = f"{target_ist.day:02d} {months[target_ist.month - 1]} {target_ist.year}"
     file_name = f"[REALTIME_SYNC] {date_str}"
 
-    return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), file_name, date_str, target_ist
+    return start_utc.strftime("%Y-%m-%dT%H:%M:%S.000Z"), end_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z"), file_name, date_str, target_ist
 
-def does_manual_file_cover_date(fname, target_day, target_month, target_year):
-    if not fname:
+def does_manual_file_cover_date(fname, target_day, target_month, target_year, upload_date=None):
+    """Only explicit sales dates qualify; part numbers are never calendar dates."""
+    fn = re.sub(r"\s*\(part \d+/\d+\)", "", (fname or "").lower()).strip()
+    if (fn.startswith(("[realtime_sync]", "[inventory]", "[launch_dates]", "[return]", "[config]"))
+            or re.search(r"cancel|return|fy\d+", fn)):
         return False
-    fn = fname.lower()
-    if (fn.startswith("[realtime_sync]") or fn.startswith("[inventory]") or 
-        fn.startswith("[launch_dates]") or fn.startswith("[return]") or 
-        fn.startswith("[config]") or "cancellation" in fn or "fy25" in fn):
+    months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+    if not 1 <= target_month <= 12:
         return False
-
-    month_names_long = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
-    month_names_short = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-    y_month_long = month_names_long[target_month - 1]
-    y_month_short = month_names_short[target_month - 1]
-
-    # Monthly reco match
-    if "[reco]" in fn and (y_month_long in fn or y_month_short in fn):
-        return True
-
-    if y_month_long not in fn and y_month_short not in fn and ".xlsx" not in fn:
+    month = months[target_month - 1]
+    month_pattern = rf"(?<![a-z])(?:{month}|{month[:3]})(?![a-z])"
+    if not re.search(month_pattern, fn):
         return False
-
-    # Range matches
-    range_matches = re.findall(r"\(?(\d{1,2})\s*[-_to]+\s*(\d{1,2})\)?", fn)
-    for start_str, end_str in range_matches:
+    years = re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", fn)
+    # Legacy day-month filenames use their upload year, never the current year.
+    file_year = int(years[0]) if len(set(years)) == 1 else None
+    if not years and upload_date:
         try:
-            start_d, end_d = int(start_str), int(end_str)
-            if start_d <= target_day <= end_d:
-                return True
-        except ValueError:
+            uploaded = datetime.fromisoformat(upload_date.replace("Z", "+00:00"))
+            file_year = uploaded.astimezone(timezone(timedelta(hours=5, minutes=30))).year
+        except (ValueError, TypeError):
             pass
+    if file_year != target_year:
+        return False
+    if fn.startswith("[reco]"):
+        return True
+    match = re.search(rf"(?<!\d)\(?(\d{{1,2}})(?:\s*(?:-|_|to)\s*(\d{{1,2}}))?\)?[\s_-]*{month_pattern}", fn)
+    if not match:
+        return False
+    first, last = int(match[1]), int(match[2] or match[1])
+    return 1 <= first <= target_day <= last <= 31
 
-    # Single exact day match
-    single_match = bool(re.search(rf"(^|[^\d])0?{target_day}([^\d]|$)", fn))
-    return single_match
 
 def purge_sync_file_from_supabase(file_name, admin_token):
     try:
@@ -453,13 +466,13 @@ def purge_sync_file_from_supabase(file_name, admin_token):
     except Exception as e:
         print(f"[Supabase Purge] Failed to delete '{file_name}': {e}")
 
-def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
+def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, days_ago=1, now=None):
     reconciled_any = False
 
     deleted_dates = get_deleted_sync_dates(admin_token)
 
-    for days_ago in [1]:
-        from_date, to_date, file_name, date_str, target_ist = get_day_window_ist(days_ago)
+    for days_ago in [days_ago]:
+        from_date, to_date, file_name, date_str, target_ist = get_day_window_ist(days_ago, now=now)
         print(f"\n[Audit Engine] Auditing {file_name} ({from_date} to {to_date})...")
 
         # 1. Check if user permanently deleted this past sync date
@@ -470,7 +483,7 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
 
         # 2. Fetch latest files list from Supabase
         get_req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/uploaded_files?select=id,name,record_count,upload_date&order=upload_date.desc&limit=100",
+            f"{SUPABASE_URL}/rest/v1/uploaded_files?select=id,name,record_count,upload_date&order=upload_date.desc",
             headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
         )
         try:
@@ -478,18 +491,17 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
                 all_files = json.loads(resp.read().decode('utf-8'))
         except Exception as e:
             print(f"[Audit Engine] Error querying Supabase metadata: {e}")
-            continue
+            raise
 
         # 3. Check if a manual verified Excel file covers this date
         manual_file_found = None
         for f in all_files:
-            if does_manual_file_cover_date(f.get("name", ""), target_ist.day, target_ist.month, target_ist.year):
+            if does_manual_file_cover_date(f.get("name", ""), target_ist.day, target_ist.month, target_ist.year, f.get("upload_date")):
                 manual_file_found = f
                 break
 
         if manual_file_found and not force:
-            print(f"[Audit Engine] Manual verified file exists for {target_ist.strftime('%d %b %Y')}: '{manual_file_found['name']}'. Purging sync file and skipping.")
-            purge_sync_file_from_supabase(file_name, admin_token)
+            print(f"[Audit Engine] Manual verified file exists for {target_ist.strftime('%d %b %Y')}: '{manual_file_found['name']}'. Keeping archive and skipping.")
             continue
 
         # 4. Query Uniware real order count for this 24-hr window
@@ -524,12 +536,16 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
         diff = abs(uniware_total_orders - stored_unique_orders)
         print(f"[Audit Engine] Comparison for {file_name}: Uniware Orders = {uniware_total_orders}, Stored Orders = {stored_unique_orders} (Stored Units = {stored_record_count}), Discrepancy = {diff} orders")
 
-        # 6. Apply threshold rule: if diff > 10 (or force / empty), fetch full 24-hr data
+        # 6. Repair any discrepancy (or force / empty) using the full IST day
         if diff > threshold_diff or force or (stored_record_count == 0):
             print(f"[Audit Engine] Discrepancy of {diff} > threshold {threshold_diff}. Commencing full 24-hour ingestion from Uniware...")
             order_codes = search_all_uniware_orders(from_date, to_date)
+            if not order_codes:
+                raise RuntimeError("Search returned no orders despite a positive Uniware count")
             if order_codes:
                 orders = fetch_orders_concurrently(order_codes, max_workers=10)
+                if len(orders) < uniware_total_orders:
+                    raise RuntimeError("Incomplete historical fetch; preserving stored data")
                 rows = transform_all_orders(orders)
                 new_file_entry = {
                     "name": file_name,
@@ -551,7 +567,7 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
                     
                     # Clean up any duplicate records for this date
                     if len(existing_realtime) > 1:
-                        dup_ids = ",".join(f['id'] for f in existing_realtime[1:])
+                        dup_ids = ",".join(str(f['id']) for f in existing_realtime[1:])
                         del_req = urllib.request.Request(
                             f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
                             headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
@@ -577,23 +593,16 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=False):
 
     return reconciled_any
 
-def execute_sync(force_reconcile_yesterday=False):
+def _execute_today_sync():
     timestamp = datetime.now(timezone.utc).isoformat()
     print(f"\n[{timestamp}] [Python Sync] Starting sync...")
 
     admin_token = get_supabase_admin_token()
 
-    # 1. Audit & Reconcile yesterday against Uniware
-    try:
-        audit_and_reconcile_yesterday(admin_token, threshold_diff=10, force=force_reconcile_yesterday)
-    except Exception as e:
-        print(f"[Audit Engine] Exception during audit: {e}")
-
     # 2. Ingest today's live orders from 00:00:00 IST to present
-    from_date = get_today_start_ist()
-    file_name = get_today_realtime_file_name()
-    now_dt = datetime.now(timezone.utc) - timedelta(minutes=1)
-    to_date = now_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    now_dt = datetime.now(timezone.utc)
+    from_date, _, file_name, _, _ = get_day_window_ist(0, now=now_dt)
+    to_date = max(now_dt - timedelta(minutes=1), datetime.fromisoformat(from_date.replace("Z", "+00:00"))).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
     print(f"[Python Sync] Searching orders from {from_date} to {to_date}...")
     order_codes = search_all_uniware_orders(from_date, to_date)
@@ -642,7 +651,7 @@ def execute_sync(force_reconcile_yesterday=False):
 
         # Clean up any duplicate records for this date
         if len(existing) > 1:
-            dup_ids = ",".join(f['id'] for f in existing[1:])
+            dup_ids = ",".join(str(f['id']) for f in existing[1:])
             del_req = urllib.request.Request(
                 f"{SUPABASE_URL}/rest/v1/uploaded_files?id=in.({dup_ids})",
                 headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"},
@@ -669,17 +678,52 @@ def execute_sync(force_reconcile_yesterday=False):
 
     return {"success": True, "orders": len(orders), "rows": len(rows)}
 
+_sync_lock = threading.Lock()
+
+
+def reconcile_recent_days(admin_token, lookback_days=7, force=False, now=None):
+    now = now or datetime.now(timezone.utc)
+    failures = []
+    reconciled = False
+    for days_ago in range(1, lookback_days + 1):
+        try:
+            reconciled = audit_and_reconcile_yesterday(
+                admin_token, threshold_diff=0, force=force, days_ago=days_ago, now=now
+            ) or reconciled
+        except Exception as exc:
+            failures.append(f"{days_ago} day(s) ago: {exc}")
+    if failures:
+        raise RuntimeError("Historical reconciliation failed: " + "; ".join(failures))
+    return reconciled
+
+
+def execute_sync(force_reconcile_yesterday=False, lookback_days=None):
+    # Avoid overlapping HTTP-triggered and background runs within this process.
+    if not _sync_lock.acquire(blocking=False):
+        return {"success": False, "in_progress": True}
+    try:
+        result = _execute_today_sync()
+        days = lookback_days if lookback_days is not None else int(os.environ.get("SYNC_LOOKBACK_DAYS", "7"))
+        if not 1 <= days <= 90:
+            raise ValueError("SYNC_LOOKBACK_DAYS must be between 1 and 90")
+        result["reconciled"] = reconcile_recent_days(get_supabase_admin_token(), days, force_reconcile_yesterday)
+        return result
+    finally:
+        _sync_lock.release()
+
+
 if __name__ == "__main__":
-    force_reconcile = "--force" in sys.argv or "--force-reconcile" in sys.argv
-    loop_mode = "--loop" in sys.argv
-    
-    if loop_mode:
-        print("[Python Sync Worker] Running continuous 5-minute loop...")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", "--force-reconcile", action="store_true")
+    parser.add_argument("--loop", action="store_true")
+    parser.add_argument("--lookback-days", type=int, default=None)
+    args = parser.parse_args()
+    if args.loop:
         while True:
             try:
-                execute_sync(force_reconcile_yesterday=force_reconcile)
-            except Exception as e:
-                print(f"[Loop Exception] {e}")
+                execute_sync(args.force, args.lookback_days)
+            except Exception as exc:
+                print(f"[Loop Exception] {exc}", flush=True)
             time.sleep(300)
     else:
-        execute_sync(force_reconcile_yesterday=force_reconcile)
+        execute_sync(args.force, args.lookback_days)

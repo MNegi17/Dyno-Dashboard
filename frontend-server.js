@@ -22,7 +22,7 @@ app.use('/api/uniware', createProxyMiddleware({
 
 // Proxy /api -> Railway Python Backend
 app.use('/api', createProxyMiddleware({
-  target: BACKEND_URL,
+  target: `${BACKEND_URL.replace(/\/$/, '')}/api`,
   changeOrigin: true,
   timeout: 90000
 }));
@@ -35,8 +35,8 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Frontend Server] Running on http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Frontend Server] Running on http://0.0.0.0:${server.address().port}`);
   console.log(`[Frontend Server] Proxying /api/uniware -> https://purpleunited.unicommerce.com`);
   console.log(`[Frontend Server] Proxying /api -> ${BACKEND_URL}`);
 });

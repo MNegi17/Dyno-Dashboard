@@ -7,3 +7,7 @@ dist-ssr
 .env
 .env.*
 .vscode
+
+.tools.local
+__pycache__
+tests

@@ -121,3 +121,11 @@ flowchart LR
 
 ## 📄 License
 Maintained by MNegi 17.
+
+## Daily sync recovery
+
+The Python worker uses the same Purple United Uniware tenant as the dashboard. Railway starts it inside `server.py`; GitHub Actions also runs `sync_worker.py`. Each run saves today first and audits the previous seven IST calendar days, repairing any missing orders. Set `SYNC_LOOKBACK_DAYS` (1�90) or run `python sync_worker.py --lookback-days 14` for a longer recovery window. `UNIWARE_URL`, `UNIWARE_USERNAME`, and `UNIWARE_PASSWORD` can override the existing connection defaults.
+
+Manual sales coverage must match the month and year; legacy filenames without a year use their upload year. Spreadsheet part numbers do not count as dates. Covered sync archives are retained, and dashboard reads never delete them. Explicit user-deleted dates remain excluded. Incomplete API responses fail the run instead of overwriting saved data.
+
+Verification: `python -m unittest discover -s tests -p "test_*.py"`, `node --test tests/*.test.js`, and `npm run build`. `/api/health` reports the deployed sync revision without starting a sync.

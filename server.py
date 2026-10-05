@@ -551,6 +551,10 @@ def start_background_sync_worker():
     t = threading.Thread(target=loop, daemon=True)
     t.start()
 
+@app.route('/api/health', methods=['GET'])
+def health_route():
+    return jsonify({"status": "ok", "sync_revision": "daily-retention-v2"})
+
 @app.route('/api/sync', methods=['GET', 'POST'])
 def trigger_realtime_sync_route():
     try:
@@ -564,7 +568,7 @@ def trigger_realtime_sync_route():
 def trigger_reconcile_yesterday_route():
     try:
         force = request.args.get('force', 'false').lower() == 'true'
-        threshold = int(request.args.get('threshold', 10))
+        threshold = int(request.args.get('threshold', 0))
         admin_token = get_supabase_admin_token()
         reconciled = audit_and_reconcile_yesterday(admin_token, threshold_diff=threshold, force=force)
         return jsonify({

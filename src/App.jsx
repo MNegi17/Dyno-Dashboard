@@ -8,7 +8,7 @@ import {
 } from 'recharts';
 import { UploadCloud, TrendingUp, TrendingDown, ShoppingBag, DollarSign, Layers, BarChart2, Home, Star, Activity, FileText, Trash2, LogOut, ChevronDown, Eye, EyeOff, Target, Menu, Search, X, PieChart as PieChartIcon, Database, Globe, Cpu, RefreshCw, Package } from 'lucide-react';
 import { supabase } from './supabaseClient';
-import { syncRealtimeSalesToSupabase, reconcileYesterdayClientSide, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName, markSyncDateAsDeleted, doesManualFileCoverDate, CONFIG_DELETED_SYNC_DATES } from './sync/supabaseSync.js';
+import { syncRealtimeSalesToSupabase, reconcileYesterdayClientSide, getLastSyncTime, getCooldownRemainingSeconds, canTriggerManualSync, getTodayRealtimeFileName, markSyncDateAsDeleted, getDeletedSyncDates, doesManualFileCoverDate, CONFIG_DELETED_SYNC_DATES } from './sync/supabaseSync.js';
 import { updateItemDirectoryEntry } from './sales/itemDirectory.js';
 
 const GlowingLogoIcon = memo(({ size = 36, white = false }) => {
@@ -1050,8 +1050,7 @@ Dyno Dashboard Auto-Mail`
     
     if (!error && data) {
       // 1. Extract config records (like deleted_sync_dates) and user files
-      const configRecord = data.find(f => f.name === CONFIG_DELETED_SYNC_DATES);
-      const deletedDatesSet = new Set(Array.isArray(configRecord?.data) ? configRecord.data : []);
+      const deletedDatesSet = await getDeletedSyncDates();
       const userFilesData = data.filter(f => !(f.name || '').startsWith('[CONFIG]'));
 
       const formatted = userFilesData.map(f => ({
@@ -1068,7 +1067,6 @@ Dyno Dashboard Auto-Mail`
       // Strictly deduplicate by file name, and filter out obsolete/deleted past sync files
       const seenFileNames = new Set();
       const deduplicated = [];
-      const duplicateIdsToClean = [];
 
       formatted.forEach(f => {
         const name = f.name || '';
@@ -1086,33 +1084,21 @@ Dyno Dashboard Auto-Mail`
               const dateKey = `${match[1].padStart(2, '0')} ${match[2]} ${year}`;
 
               const isDeleted = deletedDatesSet.has(dateKey) || deletedDatesSet.has(name.replace('[REALTIME_SYNC]', '').trim());
-              const isCoveredByManual = userFilesData.some(mf => doesManualFileCoverDate(mf.name, day, month0 >= 0 ? month0 : 0, year));
+              const isCoveredByManual = userFilesData.some(mf => doesManualFileCoverDate(mf.name, day, month0, year, mf.upload_date));
 
               if (isDeleted || isCoveredByManual) {
-                console.log(`[Sync Clean] Past sync file ${name} is superseded/deleted. Purging ID ${f.id}...`);
-                duplicateIdsToClean.push(f.id);
+                // Hide covered dates without destructively deleting their archive.
                 return;
               }
             }
           }
         }
 
-        if (seenFileNames.has(name)) {
-          if (name.startsWith('[REALTIME_SYNC]')) {
-            duplicateIdsToClean.push(f.id);
-          }
-        } else {
+        if (!seenFileNames.has(name)) {
           seenFileNames.add(name);
           deduplicated.push(f);
         }
       });
-
-      // Self-healing: Purge any duplicate/superseded sync records from Supabase in the background
-      if (duplicateIdsToClean.length > 0) {
-        supabase.from('uploaded_files').delete().in('id', duplicateIdsToClean).then(() => {
-          console.log(`[Auto-Clean] Purged ${duplicateIdsToClean.length} obsolete/duplicate file entries from database`);
-        }).catch(() => {});
-      }
 
       setUploadedFiles(deduplicated);
 
