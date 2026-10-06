@@ -7,8 +7,7 @@ import {
   BarChart3, 
   AlertCircle,
   Package,
-  SlidersHorizontal,
-  ChevronDown
+  SlidersHorizontal
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -27,12 +26,15 @@ import {
 } from './cancellationStorage';
 import { calculateFinanceMetrics } from './financeMetrics.js';
 import { 
-  loadMarketingRates, 
-  saveMarketingRates, 
-  resetMarketingRates, 
-  resolveChannelRate, 
-  DEFAULT_CHANNEL_RATES 
-} from './marketingRatesStorage.js';
+  FINANCE_CHANNEL_RULES,
+  FINANCE_MONTH_OPTIONS,
+  normalizeFinanceMonthKey,
+  normalizeFinanceChannelKey,
+  calculateChannelTiles,
+  loadFinanceRules,
+  saveFinanceRules,
+  resetFinanceRules
+} from './financeRulesStorage.js';
 import './FinanceSection.css';
 
 const formatINR = (val) => {
@@ -56,7 +58,7 @@ export const FinanceSection = ({
   getChannelColor,
   onReturnUpload
 }) => {
-  // Determine primary month name for cancellations mapping
+  // Primary month name derived directly from the main top filter
   const primaryMonth = useMemo(() => {
     if (Array.isArray(selectedMonth) && selectedMonth.length > 0) {
       return selectedMonth[0];
@@ -64,8 +66,27 @@ export const FinanceSection = ({
     if (typeof selectedMonth === 'string' && selectedMonth !== 'All') {
       return selectedMonth;
     }
-    return 'July';
+    return 'September';
   }, [selectedMonth]);
+
+  // Normalized month key for finance rules (April-Sept, and September Onwards for Oct+)
+  const activeRuleMonth = useMemo(() => {
+    return normalizeFinanceMonthKey(selectedMonth);
+  }, [selectedMonth]);
+
+  // Active channel derived directly from the main top channel filter
+  const activeChannelKey = useMemo(() => {
+    if (Array.isArray(selectedChannels)) {
+      if (selectedChannels.length === 1) {
+        return normalizeFinanceChannelKey(selectedChannels[0]);
+      }
+      return 'All';
+    }
+    if (typeof selectedChannels === 'string' && selectedChannels !== 'All' && selectedChannels !== 'All Channels') {
+      return normalizeFinanceChannelKey(selectedChannels);
+    }
+    return 'All';
+  }, [selectedChannels]);
 
   const [cancellationsData, setCancellationsData] = useState([]);
   
@@ -75,11 +96,12 @@ export const FinanceSection = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef(null);
 
-  // Marketing Rates State
-  const [marketingRates, setMarketingRates] = useState(() => loadMarketingRates());
+  // Finance Rules State
+  const [financeRules, setFinanceRules] = useState(() => loadFinanceRules());
   const [isRatesModalOpen, setIsRatesModalOpen] = useState(false);
-  const [editRatesDraft, setEditRatesDraft] = useState({});
+  const [editRulesDraft, setEditRulesDraft] = useState({});
   const [ratesSaveSuccess, setRatesSaveSuccess] = useState(false);
+  const [activeEditMonth, setActiveEditMonth] = useState(activeRuleMonth);
 
   // Load cancellations when primary month or year changes
   useEffect(() => {
@@ -98,60 +120,44 @@ export const FinanceSection = ({
     });
   }, [salesData, returnData, cancellationsData, allSalesData, selectedChannels]);
 
-  // Determine active channel for Marketing tiles (syncs with top channel filter)
-  const activeTopChannel = useMemo(() => {
-    if (Array.isArray(selectedChannels) && selectedChannels.length === 1) {
-      return selectedChannels[0];
-    }
-    return 'All';
-  }, [selectedChannels]);
+  // Compute the 4 Unit Economics tiles driven directly by the main filter
+  const unitEconomics = useMemo(() => {
+    const isSingleChannel = activeChannelKey !== 'All' && activeChannelKey !== 'All Channels';
+    let targetRev = metrics.net.revenue > 0 ? metrics.net.revenue : metrics.gross.revenue;
+    let targetUnits = metrics.net.units > 0 ? metrics.net.units : metrics.gross.units;
 
-  const [selectedMarketingChannel, setSelectedMarketingChannel] = useState(activeTopChannel);
-
-  // Sync internal channel selector when the top filter changes
-  useEffect(() => {
-    setSelectedMarketingChannel(activeTopChannel);
-  }, [activeTopChannel]);
-
-  // Resolve active rates (Margin, Marketing, Logistics)
-  const activeRates = useMemo(() => {
-    return resolveChannelRate(selectedMarketingChannel, marketingRates);
-  }, [selectedMarketingChannel, marketingRates]);
-
-  // Revenue base for computing the Rupee amounts for this channel
-  const activeRevenueBase = useMemo(() => {
-    if (selectedMarketingChannel !== 'All' && selectedMarketingChannel !== 'All Channels') {
+    if (isSingleChannel) {
       const chItem = metrics.channelBreakdown.find(
-        c => c.channel.toUpperCase() === selectedMarketingChannel.toUpperCase()
+        c => normalizeFinanceChannelKey(c.channel) === activeChannelKey
       );
       if (chItem) {
-        return chItem.netRevenue > 0 ? chItem.netRevenue : chItem.grossRevenue;
+        targetRev = chItem.netRevenue > 0 ? chItem.netRevenue : chItem.grossRevenue;
+        targetUnits = chItem.netUnits > 0 ? chItem.netUnits : chItem.grossUnits;
       }
     }
-    return metrics.net.revenue > 0 ? metrics.net.revenue : metrics.gross.revenue;
-  }, [selectedMarketingChannel, metrics]);
 
-  const computedMarginINR = Math.round((activeRevenueBase * (activeRates.margin || 0)) / 100);
-  const computedMarketingINR = Math.round((activeRevenueBase * (activeRates.marketing || 0)) / 100);
-  const computedLogisticsINR = Math.round((activeRevenueBase * (activeRates.logistics || 0)) / 100);
-
-  // Available channel list for the marketing dropdown/pills
-  const availableChannelOptions = useMemo(() => {
-    const keys = Object.keys(marketingRates).filter(k => k !== 'All');
-    return ['All', ...keys];
-  }, [marketingRates]);
+    return calculateChannelTiles({
+      channelKey: activeChannelKey,
+      monthKey: activeRuleMonth,
+      salesData,
+      revenue: targetRev,
+      units: targetUnits,
+      customRules: financeRules
+    });
+  }, [activeChannelKey, activeRuleMonth, salesData, metrics, financeRules]);
 
   // Open Edit Rates modal with current values
   const handleOpenRatesModal = () => {
-    setEditRatesDraft(JSON.parse(JSON.stringify(marketingRates)));
+    setEditRulesDraft(JSON.parse(JSON.stringify(financeRules)));
+    setActiveEditMonth(activeRuleMonth);
     setRatesSaveSuccess(false);
     setIsRatesModalOpen(true);
   };
 
   // Save updated rates from modal
   const handleSaveRates = () => {
-    saveMarketingRates(editRatesDraft);
-    setMarketingRates(editRatesDraft);
+    saveFinanceRules(editRulesDraft);
+    setFinanceRules(editRulesDraft);
     setRatesSaveSuccess(true);
     setTimeout(() => {
       setIsRatesModalOpen(false);
@@ -159,12 +165,11 @@ export const FinanceSection = ({
     }, 800);
   };
 
-  // Reset rates to factory defaults
+  // Reset rates to factory defaults from Finance Sheet.xlsx
   const handleResetRates = () => {
-    resetMarketingRates();
-    const defaults = { ...DEFAULT_CHANNEL_RATES };
-    setMarketingRates(defaults);
-    setEditRatesDraft(defaults);
+    const defaults = resetFinanceRules();
+    setFinanceRules(defaults);
+    setEditRulesDraft(defaults);
     setRatesSaveSuccess(true);
   };
 
@@ -223,7 +228,7 @@ export const FinanceSection = ({
         </div>
       )}
 
-      {/* Main Metric Cards Grid (4 Core Tiles) */}
+      {/* Main Metric Cards Grid (4 Core High-Level Tiles) */}
       <div className="finance-grid">
         {/* Tile 1: GROSS REVENUE TILE */}
         <div className="finance-card">
@@ -359,105 +364,114 @@ export const FinanceSection = ({
 
           <div className="card-bottom-pills">
             <div className="submetric-row">
-              <span className="submetric-label">Dataset:</span>
-              <span className="submetric-val" style={{ fontSize: '0.78rem', color: '#d6c8ff' }}>
-                {cancellationsData.length > 0 ? `${formatUnits(metrics.cancellations.units)} units (${cancellationsData.length} records)` : 'No cancellation file'}
+              <span className="submetric-label">Month Dataset:</span>
+              <span className="submetric-val" style={{ color: '#e2d9fc' }}>
+                {primaryMonth} {selectedFY}
               </span>
             </div>
             <div className="submetric-row">
               <span className="submetric-label">Impact on Gross:</span>
-              <span className="submetric-val" style={{ color: '#d6c8ff' }}>
-                - {formatINR(metrics.cancellations.revenue)}
+              <span className="submetric-val" style={{ color: '#ff7675' }}>
+                - {metrics.gross.revenue > 0 ? ((metrics.cancellations.revenue / metrics.gross.revenue) * 100).toFixed(1) : 0}%
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 3 Marketing & Unit Economics Tiles (Margin, Marketing, Logistics) */}
+      {/* =========================================================
+          CHANNEL UNIT ECONOMICS SECTION (4 TILES: Margin, Marketing, Logistic, Fixed Fee)
+          Driven directly by main dashboard filters
+          ========================================================= */}
       <div className="marketing-section">
         <div className="marketing-header-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '1rem', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.3px' }}>
-              Marketing & Unit Economics
+            <span style={{ fontSize: '1.05rem', fontWeight: 700, color: '#ffffff', letterSpacing: '-0.3px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <SlidersHorizontal size={18} style={{ color: '#ba54f5' }} />
+              Channel Economics & Finance Rules
             </span>
             <span className="badge-pill badge-purple-clean">
-              Channel: <strong style={{ color: '#fff', marginLeft: '4px' }}>{activeRates.channelName}</strong>
+              Channel: <strong style={{ color: '#fff', marginLeft: '4px' }}>{unitEconomics.channelDisplay}</strong>
+            </span>
+            <span className="badge-pill badge-cyan">
+              Month: <strong style={{ color: '#00f2c4', marginLeft: '4px' }}>{unitEconomics.monthKey}</strong>
             </span>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {/* Quick Channel Preview Selector */}
-            <div className="marketing-channel-select-wrapper">
-              <span style={{ fontSize: '0.78rem', color: '#c4b5fd' }}>View Channel:</span>
-              <select
-                className="marketing-channel-dropdown"
-                value={selectedMarketingChannel}
-                onChange={(e) => setSelectedMarketingChannel(e.target.value)}
-              >
-                {availableChannelOptions.map(ch => (
-                  <option key={ch} value={ch}>{ch === 'All' ? 'All Channels (Blended)' : ch}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Admin: Edit Rates Modal Trigger */}
+            {/* Admin: Edit Rules Modal Trigger */}
             {userRole === 'admin' && (
               <button 
                 className="marketing-edit-btn"
                 onClick={handleOpenRatesModal}
-                title="Edit pre-filled Margin, Marketing, and Logistics rates per channel"
+                title="Edit Margin, Marketing, Logistics, and Fixed Fee rules per channel"
               >
                 <SlidersHorizontal size={14} />
-                Edit Rates
+                Edit Rules
               </button>
             )}
           </div>
         </div>
 
-        <div className="marketing-tiles-grid">
-          {/* Tile 1: Margin */}
+        {/* 4 Core Unit Economics Tiles Grid */}
+        <div className="marketing-tiles-grid four-tiles">
+          {/* Tile 1: Margin (Fixed) */}
           <div className="marketing-card">
             <div className="marketing-card-top">
-              <span className="marketing-card-label">Margin</span>
-              <span className="badge-pill badge-purple-clean">{activeRates.margin}% Target</span>
+              <span className="marketing-card-label">Margin (Fixed)</span>
+              <span className="badge-pill badge-purple-clean">{unitEconomics.margin.badge}</span>
             </div>
             <div className="marketing-card-main">
-              <div className="marketing-number">{activeRates.margin}%</div>
-              <div className="marketing-calculated-val">{formatINR(computedMarginINR)}</div>
+              <div className="marketing-number">{unitEconomics.margin.mainDisplay}</div>
+              <div className="marketing-calculated-val">{formatINR(unitEconomics.margin.inr)}</div>
             </div>
             <div className="marketing-card-footer">
-              <span className="marketing-footer-note">Gross Margin for {activeRates.channelName}</span>
+              <span className="marketing-footer-note">{unitEconomics.margin.subNote}</span>
             </div>
           </div>
 
-          {/* Tile 2: Marketing */}
+          {/* Tile 2: Marketing (Fixed) */}
           <div className="marketing-card">
             <div className="marketing-card-top">
-              <span className="marketing-card-label">Marketing</span>
-              <span className="badge-pill badge-purple-clean">{activeRates.marketing}% Ad Spend</span>
+              <span className="marketing-card-label">Marketing (Fixed)</span>
+              <span className="badge-pill badge-purple-clean">{unitEconomics.marketing.badge}</span>
             </div>
             <div className="marketing-card-main">
-              <div className="marketing-number">{activeRates.marketing}%</div>
-              <div className="marketing-calculated-val">{formatINR(computedMarketingINR)}</div>
+              <div className="marketing-number">{unitEconomics.marketing.mainDisplay}</div>
+              <div className="marketing-calculated-val">{unitEconomics.marketing.inr > 0 ? formatINR(unitEconomics.marketing.inr) : '₹0'}</div>
             </div>
             <div className="marketing-card-footer">
-              <span className="marketing-footer-note">Marketing allocation on net sales</span>
+              <span className="marketing-footer-note">{unitEconomics.marketing.subNote}</span>
             </div>
           </div>
 
-          {/* Tile 3: Logistics */}
+          {/* Tile 3: Logistic (Avg) */}
           <div className="marketing-card">
             <div className="marketing-card-top">
-              <span className="marketing-card-label">Logistics</span>
-              <span className="badge-pill badge-purple-clean">{activeRates.logistics}% Fulfillment</span>
+              <span className="marketing-card-label">Logistic (Avg)</span>
+              <span className="badge-pill badge-purple-clean">{unitEconomics.logistics.badge}</span>
             </div>
             <div className="marketing-card-main">
-              <div className="marketing-number">{activeRates.logistics}%</div>
-              <div className="marketing-calculated-val">{formatINR(computedLogisticsINR)}</div>
+              <div className="marketing-number">{unitEconomics.logistics.mainDisplay}</div>
+              <div className="marketing-calculated-val">{unitEconomics.logistics.inr > 0 ? formatINR(unitEconomics.logistics.inr) : '₹0'}</div>
             </div>
             <div className="marketing-card-footer">
-              <span className="marketing-footer-note">Shipping & logistics allocation</span>
+              <span className="marketing-footer-note">{unitEconomics.logistics.subNote}</span>
+            </div>
+          </div>
+
+          {/* Tile 4: Fixed Fee (Avg) */}
+          <div className="marketing-card">
+            <div className="marketing-card-top">
+              <span className="marketing-card-label">Fixed Fee (Avg)</span>
+              <span className="badge-pill badge-purple-clean">{unitEconomics.fixedFee.badge}</span>
+            </div>
+            <div className="marketing-card-main">
+              <div className="marketing-number">{unitEconomics.fixedFee.mainDisplay}</div>
+              <div className="marketing-calculated-val">{unitEconomics.fixedFee.inr > 0 ? formatINR(unitEconomics.fixedFee.inr) : '₹0'}</div>
+            </div>
+            <div className="marketing-card-footer">
+              <span className="marketing-footer-note">{unitEconomics.fixedFee.subNote}</span>
             </div>
           </div>
         </div>
@@ -552,46 +566,44 @@ export const FinanceSection = ({
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div style={{ background: 'rgba(186, 84, 245, 0.06)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.15)' }}>
-                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>
-                  Cancellations Leakage
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.1)' }}>
+                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>Return Loss Ratio</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
+                  {metrics.gross.revenue > 0 ? ((metrics.returns.revenue / metrics.gross.revenue) * 100).toFixed(1) : 0}%
                 </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff' }}>
-                  {metrics.cancellations.rate.toFixed(1)}%
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#d6c8ff', marginTop: '2px' }}>
-                  {formatINR(metrics.cancellations.revenue)} deducted
+                <div style={{ fontSize: '0.75rem', color: '#a78bfa', marginTop: '2px' }}>
+                  {formatINR(metrics.returns.revenue)} lost
                 </div>
               </div>
 
-              <div style={{ background: 'rgba(186, 84, 245, 0.06)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.15)' }}>
-                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>
-                  Returns / RTO Leakage
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid rgba(186, 84, 245, 0.1)' }}>
+                <div style={{ fontSize: '0.78rem', color: '#c4b5fd', marginBottom: '4px' }}>Cancellation Ratio</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#ffffff' }}>
+                  {metrics.gross.revenue > 0 ? ((metrics.cancellations.revenue / metrics.gross.revenue) * 100).toFixed(1) : 0}%
                 </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#ffffff' }}>
-                  {metrics.returns.rate.toFixed(1)}%
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#d6c8ff', marginTop: '2px' }}>
-                  {formatINR(metrics.returns.revenue)} returned
+                <div style={{ fontSize: '0.75rem', color: '#a78bfa', marginTop: '2px' }}>
+                  {formatINR(metrics.cancellations.revenue)} lost
                 </div>
               </div>
             </div>
 
-            <div style={{ background: 'rgba(0, 242, 196, 0.06)', border: '1px solid rgba(0, 242, 196, 0.25)', padding: '0.85rem 1rem', borderRadius: '8px', fontSize: '0.82rem', color: '#a7f3d0' }}>
-              Net Realization stands at <strong style={{ color: '#00f2c4' }}>{formatINR(metrics.net.revenue)}</strong> across <strong style={{ color: '#fff' }}>{formatUnits(metrics.net.units)}</strong> fulfilled units.
+            <div style={{ background: 'rgba(186, 84, 245, 0.08)', padding: '0.75rem 1rem', borderRadius: '8px', borderLeft: '3px solid #ba54f5' }}>
+              <div style={{ fontSize: '0.8rem', color: '#e2d9fc', lineHeight: 1.4 }}>
+                <strong>Net ASP vs Gross ASP:</strong> Net ASP is <strong style={{ color: '#00f2c4' }}>{formatINR(metrics.net.asp)}</strong> compared to Gross ASP of {formatINR(metrics.gross.asp)}.
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Channel-Wise Financial Breakdown Table - No Colorful Bullets */}
+      {/* Channel Breakdown Table */}
       <div className="finance-section-card">
         <div className="section-header">
           <h3>
-            Channel-Wise Financial Realization Breakdown
+            Marketplace Financial Breakdown ({activeMonthLabel})
           </h3>
           <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
-            Gross Sales vs Deductions by Channel
+            Sorted by gross sales volume
           </span>
         </div>
 
@@ -599,54 +611,60 @@ export const FinanceSection = ({
           <table className="finance-table">
             <thead>
               <tr>
-                <th>Channel</th>
-                <th>Gross Sales (₹)</th>
-                <th>Gross Units</th>
-                <th>Net Revenue (₹)</th>
-                <th>Net Units</th>
-                <th>Returns (₹)</th>
-                <th>Return Units</th>
-                <th>Cancellation (₹)</th>
-                <th>Cancelled Units</th>
-                <th>Realization %</th>
+                <th>Marketplace Channel</th>
+                <th style={{ textAlign: 'right' }}>Gross Revenue</th>
+                <th style={{ textAlign: 'right' }}>Cancelled Revenue</th>
+                <th style={{ textAlign: 'right' }}>Returns Revenue</th>
+                <th style={{ textAlign: 'right' }}>Net Revenue</th>
+                <th style={{ textAlign: 'right' }}>Net Units</th>
+                <th style={{ textAlign: 'center' }}>Realization Rate</th>
               </tr>
             </thead>
             <tbody>
               {metrics.channelBreakdown.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: '#c4b5fd' }}>
-                    No channel sales data available for {activeMonthLabel}.
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#c4b5fd' }}>
+                    No financial data available for selected filters.
                   </td>
                 </tr>
               ) : (
-                metrics.channelBreakdown.map((ch, idx) => (
+                metrics.channelBreakdown.map((row, idx) => (
                   <tr key={idx}>
-                    <td style={{ fontWeight: 600, color: '#ffffff' }}>
-                      {ch.channel}
+                    <td style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span 
+                        style={{ 
+                          width: '10px', 
+                          height: '10px', 
+                          borderRadius: '50%', 
+                          background: getChannelColor ? getChannelColor(row.channel) : '#ba54f5' 
+                        }} 
+                      />
+                      {row.channel}
                     </td>
-                    <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatINR(ch.grossRevenue)}</td>
-                    <td style={{ color: '#e2d9fc' }}>{formatUnits(ch.grossUnits)}</td>
-                    <td style={{ fontWeight: 700, color: '#00f2c4' }}>
-                      {formatINR(ch.netRevenue)}
+                    <td style={{ textAlign: 'right', color: '#ffffff' }}>
+                      {formatINR(row.grossRevenue)}
                     </td>
-                    <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatUnits(ch.netUnits)}</td>
-                    <td style={{ color: '#d6c8ff' }}>
-                      {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '₹0'}
+                    <td style={{ textAlign: 'right', color: '#ff7675' }}>
+                      {row.cancelledRevenue > 0 ? `- ${formatINR(row.cancelledRevenue)}` : '₹0'}
                     </td>
-                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.returnUnits)}</td>
-                    <td style={{ color: '#d6c8ff' }}>
-                      {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '₹0'}
+                    <td style={{ textAlign: 'right', color: '#d6c8ff' }}>
+                      {row.returnRevenue > 0 ? `- ${formatINR(row.returnRevenue)}` : '₹0'}
                     </td>
-                    <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.cancelledUnits)}</td>
-                    <td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: '#00f2c4' }}>
+                      {formatINR(row.netRevenue)}
+                    </td>
+                    <td style={{ textAlign: 'right', color: '#ffffff' }}>
+                      {formatUnits(row.netUnits)}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
                       <div className="progress-bar-bg">
                         <div 
                           className="progress-bar-fill" 
-                          style={{ width: `${Math.min(100, ch.realizationRate)}%` }} 
+                          style={{ width: `${Math.min(100, row.realizationRate)}%` }} 
                         />
                       </div>
-                      <span style={{ fontWeight: 600, fontSize: '0.8rem', color: '#00f2c4' }}>
-                        {ch.realizationRate.toFixed(1)}%
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2d9fc' }}>
+                        {row.realizationRate.toFixed(1)}%
                       </span>
                     </td>
                   </tr>
@@ -657,82 +675,168 @@ export const FinanceSection = ({
         </div>
       </div>
 
-      {/* Edit Marketing & Unit Economics Rates Modal */}
+      {/* Admin Edit Rules Modal */}
       {isRatesModalOpen && (
         <div className="modal-overlay" onClick={() => setIsRatesModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card" style={{ maxWidth: '780px' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Edit Channel Economics Rates</h3>
-              <button className="modal-close-btn" onClick={() => setIsRatesModalOpen(false)}>
+              <h3>Edit Channel Finance Rules</h3>
+              <button 
+                className="modal-close-btn"
+                onClick={() => setIsRatesModalOpen(false)}
+              >
                 <X size={20} />
               </button>
             </div>
 
-            <p style={{ color: '#c4b5fd', fontSize: '0.88rem', marginBottom: '1.25rem' }}>
-              Update pre-filled Margin, Marketing, and Logistics percentage rates for each sales channel. Changes are saved automatically.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <p style={{ color: '#c4b5fd', fontSize: '0.85rem', margin: 0 }}>
+                Edit rates for <strong>{activeEditMonth}</strong>. Rules saved here persist across dashboard reloads.
+              </p>
 
-            <div style={{ maxHeight: '340px', overflowY: 'auto', borderRadius: '8px', border: '1px solid rgba(186, 84, 245, 0.2)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>Editing Month:</span>
+                <select 
+                  className="marketing-channel-dropdown"
+                  value={activeEditMonth}
+                  onChange={(e) => setActiveEditMonth(e.target.value)}
+                >
+                  {FINANCE_MONTH_OPTIONS.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ overflowX: 'auto', maxHeight: '380px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ background: 'rgba(0,0,0,0.3)', borderBottom: '1px solid rgba(186, 84, 245, 0.2)' }}>
                     <th style={{ padding: '10px 12px', textAlign: 'left', color: '#c4b5fd' }}>Channel</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Margin %</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Marketing %</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Logistics %</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Margin (Apparel)</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Margin (Footwear)</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Marketing</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Logistics</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', color: '#c4b5fd' }}>Fixed Fee</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.keys(editRatesDraft).map((chKey) => {
-                    const row = editRatesDraft[chKey] || { margin: 0, marketing: 0, logistics: 0 };
+                  {Object.keys(editRulesDraft).map((chKey) => {
+                    const monthRules = editRulesDraft[chKey]?.[activeEditMonth] || {
+                      marginApparel: 0,
+                      marginFootwear: 0,
+                      marketing: 0,
+                      logistics: 0,
+                      fixedFee: 0
+                    };
                     return (
                       <tr key={chKey} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                         <td style={{ padding: '10px 12px', fontWeight: 600, color: '#fff' }}>
-                          {chKey === 'All' ? 'All Channels (Default)' : chKey}
+                          {chKey}
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                           <input 
-                            type="number" 
-                            step="0.1"
-                            value={row.margin}
+                            type="text" 
+                            value={monthRules.marginApparel ?? ''}
                             onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setEditRatesDraft(prev => ({
+                              const val = !isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value;
+                              setEditRulesDraft(prev => ({
                                 ...prev,
-                                [chKey]: { ...prev[chKey], margin: val }
+                                [chKey]: {
+                                  ...prev[chKey],
+                                  [activeEditMonth]: {
+                                    ...prev[chKey]?.[activeEditMonth],
+                                    marginApparel: val
+                                  }
+                                }
                               }));
                             }}
                             className="rate-edit-input"
+                            style={{ width: '90px' }}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                           <input 
-                            type="number" 
-                            step="0.1"
-                            value={row.marketing}
+                            type="text" 
+                            value={monthRules.marginFootwear ?? ''}
                             onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setEditRatesDraft(prev => ({
+                              const val = !isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value;
+                              setEditRulesDraft(prev => ({
                                 ...prev,
-                                [chKey]: { ...prev[chKey], marketing: val }
+                                [chKey]: {
+                                  ...prev[chKey],
+                                  [activeEditMonth]: {
+                                    ...prev[chKey]?.[activeEditMonth],
+                                    marginFootwear: val
+                                  }
+                                }
                               }));
                             }}
                             className="rate-edit-input"
+                            style={{ width: '90px' }}
                           />
                         </td>
-                        <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                           <input 
-                            type="number" 
-                            step="0.1"
-                            value={row.logistics}
+                            type="text" 
+                            value={monthRules.marketing ?? ''}
                             onChange={(e) => {
-                              const val = parseFloat(e.target.value) || 0;
-                              setEditRatesDraft(prev => ({
+                              const val = !isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value;
+                              setEditRulesDraft(prev => ({
                                 ...prev,
-                                [chKey]: { ...prev[chKey], logistics: val }
+                                [chKey]: {
+                                  ...prev[chKey],
+                                  [activeEditMonth]: {
+                                    ...prev[chKey]?.[activeEditMonth],
+                                    marketing: val
+                                  }
+                                }
                               }));
                             }}
                             className="rate-edit-input"
+                            style={{ width: '90px' }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                          <input 
+                            type="text" 
+                            value={monthRules.logistics ?? ''}
+                            onChange={(e) => {
+                              const val = !isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value;
+                              setEditRulesDraft(prev => ({
+                                ...prev,
+                                [chKey]: {
+                                  ...prev[chKey],
+                                  [activeEditMonth]: {
+                                    ...prev[chKey]?.[activeEditMonth],
+                                    logistics: val
+                                  }
+                                }
+                              }));
+                            }}
+                            className="rate-edit-input"
+                            style={{ width: '90px' }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                          <input 
+                            type="text" 
+                            value={monthRules.fixedFee ?? ''}
+                            onChange={(e) => {
+                              const val = !isNaN(Number(e.target.value)) ? Number(e.target.value) : e.target.value;
+                              setEditRulesDraft(prev => ({
+                                ...prev,
+                                [chKey]: {
+                                  ...prev[chKey],
+                                  [activeEditMonth]: {
+                                    ...prev[chKey]?.[activeEditMonth],
+                                    fixedFee: val
+                                  }
+                                }
+                              }));
+                            }}
+                            className="rate-edit-input"
+                            style={{ width: '90px' }}
                           />
                         </td>
                       </tr>
@@ -744,7 +848,7 @@ export const FinanceSection = ({
 
             {ratesSaveSuccess && (
               <div style={{ marginTop: '1rem', color: '#00f2c4', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <CheckCircle2 size={16} /> Rates successfully updated and saved!
+                <CheckCircle2 size={16} /> Rules successfully updated and saved!
               </div>
             )}
 
@@ -754,7 +858,7 @@ export const FinanceSection = ({
                 onClick={handleResetRates}
                 style={{ background: 'none', border: 'none', color: '#c4b5fd', fontSize: '0.82rem', cursor: 'pointer', textDecoration: 'underline' }}
               >
-                Reset to Defaults
+                Reset to Finance Sheet Defaults
               </button>
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -768,7 +872,7 @@ export const FinanceSection = ({
                   className="finance-action-btn"
                   onClick={handleSaveRates}
                 >
-                  Save Rates
+                  Save Rules
                 </button>
               </div>
             </div>
