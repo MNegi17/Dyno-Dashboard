@@ -169,7 +169,7 @@ export const calculateFinanceMetrics = ({
     { name: 'Gross Revenue', value: Math.round(grossRevenue), displayVal: grossRevenue, fill: '#ba54f5' },
     { name: 'Net Revenue', value: Math.round(netRevenue), displayVal: netRevenue, fill: '#00f2c4' },
     { name: 'Returns', value: Math.round(totalReturnRevenue), displayVal: totalReturnRevenue, fill: '#9d4edd' },
-    { name: 'Cancellation', value: Math.round(totalCancelledRevenue), displayVal: totalCancelledRevenue, fill: '#8a70d6' }
+    { name: 'Cancellation (Invoice Not Generated)', value: Math.round(totalCancelledRevenue), displayVal: totalCancelledRevenue, fill: '#8a70d6' }
   ];
 
   return {

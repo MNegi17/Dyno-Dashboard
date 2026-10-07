@@ -1,8 +1,8 @@
-﻿FROM node:20-alpine
+FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
-# Cache bust: 20261007154847
+# Cache bust: 20261007165500
 COPY . .
 RUN npm run build
 EXPOSE 8080

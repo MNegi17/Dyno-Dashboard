@@ -85,7 +85,7 @@ export async function transformRealtimeOrders(orders = [], existingMyntraRows = 
   const myntraItemsForDisc = [...existingMyntraRows];
   for (const order of orders) {
     const ch = normalizeChannelName(order.channel);
-    if (ch === 'MYNTRA' || ch === 'MYNTRA_SJIT') {
+    if (ch === 'MYNTRA' || ch === 'MYNTRA_SJIT' || ch === 'MYNTRA_MNOW') {
       for (const it of order.saleOrderItems || []) {
         const sp = typeof it.sellingPrice === 'number' ? it.sellingPrice : parseFloat(String(it.sellingPrice)) || 0;
         const mrp = typeof it.maxRetailPrice === 'number' ? it.maxRetailPrice : parseFloat(String(it.maxRetailPrice)) || sp;

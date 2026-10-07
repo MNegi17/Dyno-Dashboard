@@ -15,6 +15,24 @@ export const FINANCE_CHANNEL_RULES = {
     'Sept': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
     'September Onwards': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 }
   },
+  'MYNTRA_SJIT': {
+    'April': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'May': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'June': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'July': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'August': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'Sept': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'September Onwards': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 }
+  },
+  'MYNTRA_MNOW': {
+    'April': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'May': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'June': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'July': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'August': { marginApparel: 0.15, marginFootwear: 0.10, marketing: '15% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'Sept': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 },
+    'September Onwards': { marginApparel: 0.00, marginFootwear: 0.00, marketing: '18% of Net Revenue', logistics: 0.13, fixedFee: 0.05 }
+  },
   'FLIPKART': {
     'April': { marginApparel: '1% (below 999 = 0%), above 1000 = 16%', marginFootwear: '1% (below 999 = 1%), above 1000 = 16%', marketing: 0.12, logistics: 0.04, fixedFee: 0.12 },
     'May': { marginApparel: '1% (below 999 = 0%), above 1000 = 16%', marginFootwear: '1% (below 999 = 1%), above 1000 = 16%', marketing: 0.12, logistics: 0.04, fixedFee: 0.12 },
@@ -84,6 +102,8 @@ export const FINANCE_MONTH_OPTIONS = [
 export const ALL_CHANNEL_KEYS = [
   'All',
   'MYNTRA',
+  'MYNTRA_SJIT',
+  'MYNTRA_MNOW',
   'FLIPKART',
   'FIRSTCRY',
   'AMAZON',
@@ -119,6 +139,8 @@ export const normalizeFinanceChannelKey = (channelInput) => {
   }
   const clean = String(ch).trim().toUpperCase();
   if (clean === 'ALL' || clean === 'ALL CHANNELS' || clean === '') return 'All';
+  if (clean.includes('MYNTRA_SJIT') || clean.includes('MYNTRA SJIT') || clean === 'SJIT') return 'MYNTRA_SJIT';
+  if (clean.includes('MYNTRA_MNOW') || clean.includes('MYNTRA MNOW') || clean.includes('MNOW')) return 'MYNTRA_MNOW';
   if (clean.includes('MYNTRA')) return 'MYNTRA';
   if (clean.includes('FLIPKART')) return 'FLIPKART';
   if (clean.includes('FIRSTCRY')) return 'FIRSTCRY';
@@ -179,7 +201,7 @@ export const calculateChannelTiles = ({
     let totalRev = revenue > 0 ? revenue : 0;
     let totalUnits = units > 0 ? units : 0;
 
-    const channels = ['MYNTRA', 'FLIPKART', 'FIRSTCRY', 'AMAZON', 'AJIO', 'D2C', 'NYKAA'];
+    const channels = ['MYNTRA', 'MYNTRA_SJIT', 'MYNTRA_MNOW', 'FLIPKART', 'FIRSTCRY', 'AMAZON', 'AJIO', 'D2C', 'NYKAA'];
     
     const chSalesMap = {};
     channels.forEach(ch => { chSalesMap[ch] = { revenue: 0, units: 0, items: [] }; });
@@ -195,11 +217,11 @@ export const calculateChannelTiles = ({
     });
 
     channels.forEach(ch => {
-      const chRule = (rules[ch] && rules[ch][normMonth]) ? rules[ch][normMonth] : FINANCE_CHANNEL_RULES[ch]['September Onwards'];
+      const chRule = (rules[ch] && rules[ch][normMonth]) ? rules[ch][normMonth] : (FINANCE_CHANNEL_RULES[ch] ? FINANCE_CHANNEL_RULES[ch]['September Onwards'] : FINANCE_CHANNEL_RULES['MYNTRA']['September Onwards']);
       const chRev = chSalesMap[ch].revenue > 0 ? chSalesMap[ch].revenue : (totalRev / channels.length);
       const chUnits = chSalesMap[ch].units > 0 ? chSalesMap[ch].units : Math.round(totalUnits / channels.length);
 
-      const singleRes = computeSingleChannelTiles(chRule, chRev, chUnits, chSalesMap[ch].items);
+      const singleRes = computeSingleChannelTiles(chRule, chRev, chUnits, chSalesMap[ch].items, ch);
       totalMarginINR += singleRes.margin.inr;
       totalMarketingINR += singleRes.marketing.inr;
       totalLogisticsINR += singleRes.logistics.inr;
@@ -220,10 +242,10 @@ export const calculateChannelTiles = ({
         mainDisplay: marginPct.toFixed(1) + '%',
         inr: Math.round(totalMarginINR),
         badge: 'Blended Margin',
-        subNote: 'Weighted across all 7 channels for ' + normMonth
+        subNote: 'Weighted across all channels for ' + normMonth
       },
       marketing: {
-        label: 'Marketing (Fixed)',
+        label: 'Marketing',
         mainDisplay: marketingPct.toFixed(1) + '%',
         inr: Math.round(totalMarketingINR),
         badge: 'Blended Ad Spend',
@@ -255,7 +277,7 @@ export const calculateChannelTiles = ({
     return rowCh === normChannel;
   });
 
-  const res = computeSingleChannelTiles(monthRule, revenue, units, channelSalesItems);
+  const res = computeSingleChannelTiles(monthRule, revenue, units, channelSalesItems, normChannel);
   return {
     channelKey: normChannel,
     channelDisplay: normChannel.charAt(0) + normChannel.slice(1).toLowerCase(),
@@ -264,9 +286,10 @@ export const calculateChannelTiles = ({
   };
 };
 
-function computeSingleChannelTiles(rule, revenue, units, salesItems = []) {
+function computeSingleChannelTiles(rule, revenue, units, salesItems = [], channelKey = '') {
   const rev = Number(revenue) || 0;
   const count = Number(units) || 0;
+  const isMyntra = Boolean(channelKey && channelKey.toUpperCase().includes('MYNTRA'));
 
   // 1. Margin (Fixed)
   let marginDisplay = '0%';
@@ -315,7 +338,7 @@ function computeSingleChannelTiles(rule, revenue, units, salesItems = []) {
     }
   }
 
-  // 2. Marketing (Fixed)
+  // 2. Marketing (Fixed word only for Myntra channels)
   let marketingDisplay = '0%';
   let marketingINR = 0;
   let marketingBadge = 'Ad Spend';
@@ -423,7 +446,7 @@ function computeSingleChannelTiles(rule, revenue, units, salesItems = []) {
       subNote: marginSubNote
     },
     marketing: {
-      label: 'Marketing (Fixed)',
+      label: isMyntra ? 'Marketing (Fixed)' : 'Marketing',
       mainDisplay: marketingDisplay,
       inr: marketingINR,
       badge: marketingBadge,
@@ -446,7 +469,7 @@ function computeSingleChannelTiles(rule, revenue, units, salesItems = []) {
   };
 }
 
-const STORAGE_KEY = 'dyno_finance_channel_rules_v3';
+const STORAGE_KEY = 'dyno_finance_channel_rules_v4';
 
 export const loadFinanceRules = () => {
   try {

@@ -98,8 +98,11 @@ const normalizeChannelName = (rawName) => {
   if (upper === 'AMAZON_FBA') {
     return 'AMAZON_FBA';
   }
-  if (upper === 'MYNTRA_SJIT') {
+  if (upper === 'MYNTRA_SJIT' || upper.includes('MYNTRA_SJIT') || upper.includes('MYNTRA SJIT') || upper === 'SJIT') {
     return 'MYNTRA_SJIT';
+  }
+  if (upper === 'MYNTRA_MNOW' || upper.includes('MYNTRA_MNOW') || upper.includes('MYNTRA MNOW') || upper === 'MNOW' || upper.includes('M_NOW')) {
+    return 'MYNTRA_MNOW';
   }
 
   return name;

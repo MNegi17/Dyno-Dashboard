@@ -11,7 +11,7 @@ export function calculateMyntraAverageDiscountFromRows(rows = []) {
 
   for (const r of rows) {
     const ch = (r.channel_name || '').toUpperCase();
-    if (ch === 'MYNTRA' || ch === 'MYNTRA_SJIT') {
+    if (ch === 'MYNTRA' || ch === 'MYNTRA_SJIT' || ch === 'MYNTRA_MNOW') {
       const sp = r.price_val || r.new_sp || r.priceVal || 0;
       const mrp = r.mrp || sp;
       if (mrp > 0 && sp > 0) {

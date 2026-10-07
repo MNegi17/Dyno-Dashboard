@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Normalize raw Uniware channel codes to standard Dyno Dashboard channel names.
  * Returns null for empty/unknown/junk values so they can be filtered out.
  */
@@ -13,7 +13,13 @@ export function normalizeChannelName(rawName) {
     return null;
   }
 
-  if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL' || upper === 'PUSPL__MYNTRA_ONLINE') {
+  if (upper === 'MYNTRA_SJIT' || upper.includes('MYNTRA_SJIT') || upper.includes('MYNTRA SJIT') || upper === 'SJIT') {
+    return 'MYNTRA_SJIT';
+  }
+  if (upper === 'MYNTRA_MNOW' || upper.includes('MYNTRA_MNOW') || upper.includes('MYNTRA MNOW') || upper === 'MNOW' || upper.includes('M_NOW') || upper.includes('MNOW')) {
+    return 'MYNTRA_MNOW';
+  }
+  if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL' || upper === 'PUSPL__MYNTRA_ONLINE' || upper === 'MYNTRA') {
     return 'MYNTRA';
   }
   if (upper === 'FIRSTCRY') {
@@ -40,9 +46,6 @@ export function normalizeChannelName(rawName) {
   }
   if (upper === 'AMAZON_FBA') {
     return 'AMAZON_FBA';
-  }
-  if (upper === 'MYNTRA_SJIT') {
-    return 'MYNTRA_SJIT';
   }
 
   return name;

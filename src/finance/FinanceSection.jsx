@@ -345,7 +345,7 @@ export const FinanceSection = ({
         <div className="finance-card">
           <div className="card-top-row">
             <div className="card-title-group">
-              <span className="card-label">Cancellation</span>
+              <span className="card-label">Cancellation (Invoice Not Generated)</span>
               <span className="card-sub-info">Pre-dispatch Cancelled</span>
             </div>
           </div>
@@ -433,7 +433,7 @@ export const FinanceSection = ({
           {/* Tile 2: Marketing (Fixed) */}
           <div className="marketing-card">
             <div className="marketing-card-top">
-              <span className="marketing-card-label">Marketing (Fixed)</span>
+              <span className="marketing-card-label">{unitEconomics.marketing?.label || (String(unitEconomics.channelKey || "").toUpperCase().includes("MYNTRA") ? "Marketing (Fixed)" : "Marketing")}</span>
               <span className="badge-pill badge-purple-clean">{unitEconomics.marketing.badge}</span>
             </div>
             <div className="marketing-card-main">
