@@ -1,10 +1,17 @@
-/**
- * Normalize raw Uniware channel codes to standard Dyno Dashboard channel names
+﻿/**
+ * Normalize raw Uniware channel codes to standard Dyno Dashboard channel names.
+ * Returns null for empty/unknown/junk values so they can be filtered out.
  */
 export function normalizeChannelName(rawName) {
-  if (!rawName) return 'Unknown';
+  if (!rawName) return null;
   const name = rawName.toString().trim();
+  if (!name) return null;
   const upper = name.toUpperCase();
+
+  // Skip junk / catch-all values from Uniware
+  if (upper === 'OTHER' || upper === 'OTHERS' || upper === 'UNKNOWN' || upper === 'N/A' || upper === 'NA' || upper === '-') {
+    return null;
+  }
 
   if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL' || upper === 'PUSPL__MYNTRA_ONLINE') {
     return 'MYNTRA';
@@ -27,7 +34,8 @@ export function normalizeChannelName(rawName) {
   if (upper.includes('FLIPKART_ONLINE') || upper.includes('FLIPKART_ON') || upper === 'PUSPL _FLIPKART_ON' || upper === 'FLIPKART') {
     return 'FLIPKART';
   }
-  if (upper.includes('NYKAA_ONLINE') || upper.includes('NYKAA_ONLIN') || upper === 'PUSPL _NYKAA_ONLIN' || upper === 'NYKAA') {
+  // Nykaa Fashion and all Nykaa variants map to NYKAA
+  if (upper.includes('NYKAA_FASHION') || upper.includes('NYKAA FASHION') || upper.includes('NYKAA_ONLINE') || upper.includes('NYKAA_ONLIN') || upper === 'PUSPL _NYKAA_ONLIN' || upper === 'NYKAA') {
     return 'NYKAA';
   }
   if (upper === 'AMAZON_FBA') {

@@ -60,11 +60,17 @@ const GOALS = {
 };
 
 const normalizeChannelName = (rawName) => {
-  if (!rawName) return 'Unknown';
+  if (!rawName) return null;
   const name = rawName.toString().trim();
+  if (!name) return null;
   const upper = name.toUpperCase();
-  
-  if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL') {
+
+  // Skip junk / catch-all values from Uniware
+  if (upper === 'OTHER' || upper === 'OTHERS' || upper === 'UNKNOWN' || upper === 'N/A' || upper === 'NA' || upper === '-') {
+    return null;
+  }
+
+  if (upper.includes('MYNTRA_ONLINE') || upper.includes('MYNTRA_ONL') || upper === 'PUSPL _MYNTRA_ONL' || upper === 'PUSPL__MYNTRA_ONLINE') {
     return 'MYNTRA';
   }
   if (upper === 'FIRSTCRY') {
@@ -73,19 +79,20 @@ const normalizeChannelName = (rawName) => {
   if (upper.includes('SHOPIFY') || upper.includes('D2C') || upper === 'D2C_SHOPIFY' || upper === 'D2C SHOPIFY' || upper === 'SHOPIFY' || upper === 'D2C') {
     return 'D2C';
   }
-  if (upper.includes('COCOBLU_ONLINE') || upper.includes('COCOBLU_ON') || upper === 'PUSPL _COCOBLU_ON') {
+  if (upper.includes('COCOBLU_ONLINE') || upper.includes('COCOBLU_ON') || upper === 'PUSPL _COCOBLU_ON' || upper === 'AMAZON_COCOBLU' || upper === 'COCOBLU') {
     return 'AMAZON_COCOBLU';
   }
-  if (upper === 'AMAZON_FLEX_API' || upper === 'AMAZON_IN_API') {
+  if (upper === 'AMAZON_FLEX_API' || upper === 'AMAZON_IN_API' || upper === 'AMAZON') {
     return 'AMAZON';
   }
-  if (upper === 'AJIO_DROPSHIP' || upper === 'AJIO DROPSHIP' || upper === 'AJIO_DRPSHP') {
+  if (upper === 'AJIO_DROPSHIP' || upper === 'AJIO DROPSHIP' || upper === 'AJIO_DRPSHP' || upper === 'AJIO') {
     return 'AJIO';
   }
-  if (upper.includes('FLIPKART_ONLINE') || upper.includes('FLIPKART_ON') || upper === 'PUSPL _FLIPKART_ON') {
+  if (upper.includes('FLIPKART_ONLINE') || upper.includes('FLIPKART_ON') || upper === 'PUSPL _FLIPKART_ON' || upper === 'FLIPKART') {
     return 'FLIPKART';
   }
-  if (upper.includes('NYKAA_ONLINE') || upper.includes('NYKAA_ONLIN') || upper === 'PUSPL _NYKAA_ONLIN') {
+  // Nykaa Fashion and all Nykaa variants map to NYKAA
+  if (upper.includes('NYKAA_FASHION') || upper.includes('NYKAA FASHION') || upper.includes('NYKAA_ONLINE') || upper.includes('NYKAA_ONLIN') || upper === 'PUSPL _NYKAA_ONLIN' || upper === 'NYKAA') {
     return 'NYKAA';
   }
   if (upper === 'AMAZON_FBA') {
@@ -94,7 +101,7 @@ const normalizeChannelName = (rawName) => {
   if (upper === 'MYNTRA_SJIT') {
     return 'MYNTRA_SJIT';
   }
-  
+
   return name;
 };
 
@@ -319,7 +326,7 @@ const getTierStyle = (tier) => {
   }
 };
 
-// Determine role from email — only the admin email gets admin access
+// Determine role from email â€” only the admin email gets admin access
 const getRoleFromEmail = (email) => {
   return email === 'manannegi17@gmail.com' ? 'admin' : 'user';
 };
@@ -880,7 +887,7 @@ Dyno Dashboard Auto-Mail`
         setSession(sbSession);
         localStorage.setItem('dyno_session', JSON.stringify(sbSession));
         setUserRole(getRoleFromEmail(sbSession.user?.email || ''));
-        // Do NOT call fetchData() here — handled by handleAuth and initial mount
+        // Do NOT call fetchData() here â€” handled by handleAuth and initial mount
       } else if (event === 'SIGNED_OUT') {
         hasFetchedRef.current = false;
         setSession(null);
@@ -1423,12 +1430,12 @@ Dyno Dashboard Auto-Mail`
         sales_data: filteredSales.map(row => ({
           parsedDate: row.parsedDate,
           priceVal: row.priceVal || 0,
-          channel_name: row.channel_name || 'Unknown'
+          channel_name: normalizeChannelName(row.channel_name) || 'OTHER'
         })),
         returns_data: filteredReturns.map(row => ({
           parsedDate: row.parsedDate,
           return_qty: row.return_qty || 0,
-          channel_name: row.channel_name || 'Unknown'
+          channel_name: normalizeChannelName(row.channel_name) || 'OTHER'
         })),
         month: selectedReportMonth,
         year: yearStr
@@ -2827,7 +2834,7 @@ Dyno Dashboard Auto-Mail`
       }
 
       divisions.add(row.division || 'Unknown');
-      channels.add(row.channel_name || row.channelname || row.channel || 'Unknown');
+      { const _ch = normalizeChannelName(row.channel_name || row.channelname || row.channel); if (_ch) channels.add(_ch); };
       categories.add(row.categories || row.category || 'Unknown');
     });
 
@@ -2865,7 +2872,7 @@ Dyno Dashboard Auto-Mail`
       const month = row.monthName || 'Unknown';
       const date = row.formattedDate || 'Unknown';
       const division = row.division || 'Unknown';
-      const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
       const category = row.categories || row.category || 'Unknown';
       const sku = row.item_color || row.itemcolor || row.barcode || '';
       const fy = row.fy || 'FY26-27';
@@ -2888,7 +2895,7 @@ Dyno Dashboard Auto-Mail`
     return returnData.filter(row => {
       const month = row.monthName || 'Unknown';
       const date = row.formattedDate || 'Unknown';
-      const channel = row.channel_name || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name) || 'OTHER';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
       const sku = row.item_color || row.itemcolor || row.barcode || '';
@@ -2918,7 +2925,7 @@ Dyno Dashboard Auto-Mail`
       const month = row.monthName || 'Unknown';
       const date = row.formattedDate || 'Unknown';
       const division = row.division || 'Unknown';
-      const channel = row.channel_name || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name) || 'OTHER';
       const category = row.categories || row.category || 'Unknown';
       const sku = row.item_color || row.itemcolor || row.barcode || '';
 
@@ -2944,7 +2951,7 @@ Dyno Dashboard Auto-Mail`
     return fy25Return.filter(row => {
       const month = row.monthName || 'Unknown';
       const date = row.formattedDate || 'Unknown';
-      const channel = row.channel_name || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name) || 'OTHER';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
       const sku = row.item_color || row.itemcolor || row.barcode || '';
@@ -2984,7 +2991,7 @@ Dyno Dashboard Auto-Mail`
       }
 
       divisions.add(row.division || 'Unknown');
-      channels.add(row.channel_name || 'Unknown');
+      { const _ch = normalizeChannelName(row.channel_name); if (_ch) channels.add(_ch); };
       categories.add(row.categories || 'Unknown');
     });
 
@@ -3022,7 +3029,7 @@ Dyno Dashboard Auto-Mail`
 
     prevFilteredData.forEach(row => {
       totalSales += row.priceVal;
-      channels.add(row.channel_name || 'Unknown');
+      { const _ch = normalizeChannelName(row.channel_name); if (_ch) channels.add(_ch); };
       categories.add(row.categories || 'Unknown');
     });
 
@@ -3055,7 +3062,7 @@ Dyno Dashboard Auto-Mail`
       const val = row.priceVal;
 
       const dateKey = row.formattedDate || 'Unknown';
-      const channel = row.channel_name || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name) || 'OTHER';
       const division = row.division || 'Unknown';
       const category = row.categories || 'Unknown';
 
@@ -3226,7 +3233,7 @@ Dyno Dashboard Auto-Mail`
 
     filteredData.forEach(row => {
       totalSales += row.priceVal;
-      channels.add(row.channel_name || row.channelname || row.channel || 'Unknown');
+      { const _ch = normalizeChannelName(row.channel_name || row.channelname || row.channel); if (_ch) channels.add(_ch); };
       categories.add(row.categories || row.category || 'Unknown');
     });
 
@@ -3260,7 +3267,7 @@ Dyno Dashboard Auto-Mail`
       const val = row.priceVal;
 
       const dateKey = row.formattedDate || 'Unknown';
-      const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
       const division = row.division || 'Unknown';
       const category = row.categories || row.category || 'Unknown';
       const sku = row.item_color || row.itemcolor || row.barcode || '';
@@ -3488,7 +3495,7 @@ Dyno Dashboard Auto-Mail`
       }
       
       const val = row.priceVal;
-      const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+      const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
       
       monthlyStats[month].revenue += val;
       monthlyStats[month].units += 1;
@@ -3564,7 +3571,7 @@ Dyno Dashboard Auto-Mail`
       if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return false;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return false;
       if (selectedChannels.length > 0) {
-        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
         if (!selectedChannels.includes(channel)) return false;
       }
       return true;
@@ -3589,7 +3596,7 @@ Dyno Dashboard Auto-Mail`
       if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
       if (selectedChannels.length > 0) {
-        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
         if (!selectedChannels.includes(channel)) return;
       }
 
@@ -3626,13 +3633,13 @@ Dyno Dashboard Auto-Mail`
       if (selectedMonth.length > 0 && !selectedMonth.includes(row.monthName)) return;
       if (selectedDate !== 'All' && row.formattedDate !== selectedDate) return;
       if (selectedChannels.length > 0) {
-        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
         if (!selectedChannels.includes(channel)) return;
       }
 
       const p = row.item_color || row.itemcolor || row.barcode;
       if (p === selectedProductReturn) {
-        const channel = row.channel_name || row.channelname || row.channel || 'Unknown';
+        const channel = normalizeChannelName(row.channel_name || row.channelname || row.channel) || 'OTHER';
         if (!channelMap[channel]) channelMap[channel] = { channel, units: 0, returns: 0 };
         channelMap[channel].units += 1;
         totalUnits += 1;
@@ -3642,7 +3649,7 @@ Dyno Dashboard Auto-Mail`
     filteredReturnData.forEach(row => {
       const p = row.item_color || 'Unknown';
       if (p === selectedProductReturn) {
-        const channel = row.channel_name || 'Unknown';
+        const channel = normalizeChannelName(row.channel_name) || 'OTHER';
         const qty = row.return_qty || 1;
         if (!channelMap[channel]) channelMap[channel] = { channel, units: 0, returns: 0 };
         channelMap[channel].returns += qty;
@@ -3747,9 +3754,9 @@ Dyno Dashboard Auto-Mail`
   
   const formatShortCurrency = (value) => {
     const val = Number(value) || 0;
-    if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)} Cr`;
-    if (val >= 100000) return `₹${(val / 100000).toFixed(1)} L`;
-    if (val >= 1000) return `₹${(val / 1000).toFixed(1)} K`;
+    if (val >= 10000000) return `â‚¹${(val / 10000000).toFixed(2)} Cr`;
+    if (val >= 100000) return `â‚¹${(val / 100000).toFixed(1)} L`;
+    if (val >= 1000) return `â‚¹${(val / 1000).toFixed(1)} K`;
     return formatCurrency(val);
   };
 
@@ -4250,7 +4257,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 <div className="auth-submit-row">
                   <button type="submit" className="auth-submit" disabled={isLoading} style={{ marginLeft: 'auto' }}>
                     {isLoading ? 'WAIT...' : `LOGIN AS ${loginRole.toUpperCase()}`} 
-                    {!isLoading && <span style={{ marginLeft: '4px' }}>→</span>}
+                    {!isLoading && <span style={{ marginLeft: '4px' }}>â†’</span>}
                   </button>
                 </div>
               </form>
@@ -4287,7 +4294,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             opacity: isActive ? 1 : 0.3,
             color: isActive ? 'var(--accent-color)' : 'inherit'
           }}>
-            {isActive ? (inventorySortOrder === 'asc' ? '▲' : '▼') : '↕'}
+            {isActive ? (inventorySortOrder === 'asc' ? 'â–²' : 'â–¼') : 'â†•'}
           </span>
         </div>
       </th>
@@ -4595,12 +4602,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </p>
                 {liveDatesError && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(244,67,54,0.1)', borderRadius: '6px', color: '#e57373', fontSize: '0.8rem' }}>
-                    ⚠ {liveDatesError}
+                    âš  {liveDatesError}
                   </div>
                 )}
                 {liveDatesSuccess && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(76,175,80,0.1)', borderRadius: '6px', color: '#81c784', fontSize: '0.8rem' }}>
-                    ✓ {liveDatesSuccess}
+                    âœ“ {liveDatesSuccess}
                   </div>
                 )}
               </div>
@@ -4621,12 +4628,12 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </p>
                 {directorySuccess && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(76,175,80,0.1)', borderRadius: '6px', color: '#81c784', fontSize: '0.8rem' }}>
-                    ✓ {directorySuccess}
+                    âœ“ {directorySuccess}
                   </div>
                 )}
                 {directoryError && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(244,67,54,0.1)', borderRadius: '6px', color: '#e57373', fontSize: '0.8rem' }}>
-                    ⚠ {directoryError}
+                    âš  {directoryError}
                   </div>
                 )}
               </div>
@@ -5156,7 +5163,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'desc' && '✓'}
+                                  High to low {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -5175,7 +5182,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'asc' && '✓'}
+                                  Low to high {skuSortFieldPrev === 'units' && skuSortDirectionPrev === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -5202,7 +5209,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdownPrev(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilterPrev === val && '✓'}
+                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilterPrev === val && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -5275,7 +5282,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'desc' && '✓'}
+                                  High to low {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -5294,7 +5301,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'asc' && '✓'}
+                                  Low to high {skuSortFieldPrev === 'returns' && skuSortDirectionPrev === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -5321,7 +5328,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdownPrev(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilterPrev === val && '✓'}
+                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilterPrev === val && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -5396,7 +5403,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  High to low {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'desc' && '✓'}
+                                  High to low {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -5415,7 +5422,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdownPrev(null);
                                   }}
                                 >
-                                  Low to high {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'asc' && '✓'}
+                                  Low to high {skuSortFieldPrev === 'inventory' && skuSortDirectionPrev === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -5447,7 +5454,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdownPrev(null);
                                     }}
                                   >
-                                    {opt.label} {skuInventoryStockFilterPrev === opt.id && '✓'}
+                                    {opt.label} {skuInventoryStockFilterPrev === opt.id && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -5671,7 +5678,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 </h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '1.1rem' }}>⚠</div>
+                    <div style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '1.1rem' }}>âš </div>
                     <div>
                       <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Automated Old Data Deletion</strong>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -5680,7 +5687,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                    <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                     <div>
                       <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Returns & Inventory Unaffected</strong>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -5689,7 +5696,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.75rem' }}>
-                    <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                    <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>âš¡</div>
                     <div>
                       <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Split Chunk Upload</strong>
                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -5736,7 +5743,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                 height: '140px',
                 marginBottom: 0
               }}>
-                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>New Launches (≤ 90 Days)</h3>
+                <h3 style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>New Launches (â‰¤ 90 Days)</h3>
                 <div className="metric-value" style={{ fontSize: '2rem', fontWeight: 800, color: '#fff' }}>
                   {inventoryDrrData.filter(item => item.isNewLaunch).length}
                 </div>
@@ -5844,7 +5851,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     className={`toggle-btn ${inventoryTab === 'new_launches' ? 'active' : ''}`}
                     style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}
                   >
-                    New Launches (≤ 90d) ({inventoryDrrData.filter(i => i.isNewLaunch).length})
+                    New Launches (â‰¤ 90d) ({inventoryDrrData.filter(i => i.isNewLaunch).length})
                   </button>
                 </div>
 
@@ -5874,7 +5881,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                   fontSize: '0.85rem',
                   color: '#ffe082'
                 }}>
-                  <span style={{ fontSize: '1.1rem' }}>⏳</span>
+                  <span style={{ fontSize: '1.1rem' }}>â³</span>
                   <div>
                     <strong>Syncing sales history...</strong> Calculations are updating in real-time as background data files download ({downloadProgress.current} of {downloadProgress.total} batches loaded).
                   </div>
@@ -5978,7 +5985,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     e.currentTarget.style.filter = 'brightness(1)';
                                   }}
                                 >
-                                  🚨 {item.alarmMessage}
+                                  ðŸš¨ {item.alarmMessage}
                                 </button>
                               ) : (
                                 <span style={{
@@ -5992,7 +5999,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                   display: 'inline-flex',
                                   alignItems: 'center'
                                 }}>
-                                  ✓ Normal / No PO
+                                  âœ“ Normal / No PO
                                 </span>
                               )}
                             </td>
@@ -6085,7 +6092,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       fontSize: '0.9rem',
                       fontWeight: 600
                     }}>
-                      ✓ {emailSuccess}
+                      âœ“ {emailSuccess}
                     </div>
                   )}
 
@@ -6100,7 +6107,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                       fontSize: '0.85rem',
                       whiteSpace: 'pre-wrap'
                     }}>
-                      ⚠ {emailError}
+                      âš  {emailError}
                     </div>
                   )}
                   
@@ -6267,9 +6274,9 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <span>Today</span>
                         {isTodayActive && (
                           <span className="today-show-all-badge">
-                            <span className="today-dot-sep">•</span>
+                            <span className="today-dot-sep">â€¢</span>
                             <span>Show All</span>
-                            <span className="today-close-icon">✕</span>
+                            <span className="today-close-icon">âœ•</span>
                           </span>
                         )}
                       </button>
@@ -7133,7 +7140,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low {skuSortField === 'units' && skuSortDirection === 'desc' && '✓'}
+                                  High to low {skuSortField === 'units' && skuSortDirection === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -7152,7 +7159,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high {skuSortField === 'units' && skuSortDirection === 'asc' && '✓'}
+                                  Low to high {skuSortField === 'units' && skuSortDirection === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -7179,7 +7186,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdown(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilter === val && '✓'}
+                                    {val === 0 ? 'All Units' : `Greater than > ${val}`} {skuMinUnitsFilter === val && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -7252,7 +7259,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low {skuSortField === 'returns' && skuSortDirection === 'desc' && '✓'}
+                                  High to low {skuSortField === 'returns' && skuSortDirection === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -7271,7 +7278,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high {skuSortField === 'returns' && skuSortDirection === 'asc' && '✓'}
+                                  Low to high {skuSortField === 'returns' && skuSortDirection === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -7298,7 +7305,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdown(null);
                                     }}
                                   >
-                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilter === val && '✓'}
+                                    {val === 0 ? 'All Returns' : `Greater than > ${val}%`} {skuMinReturnPctFilter === val && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -7373,7 +7380,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  High to low {skuSortField === 'inventory' && skuSortDirection === 'desc' && '✓'}
+                                  High to low {skuSortField === 'inventory' && skuSortDirection === 'desc' && 'âœ“'}
                                 </div>
                                 <div 
                                   className="custom-select-option" 
@@ -7392,7 +7399,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                     setActiveTableFilterDropdown(null);
                                   }}
                                 >
-                                  Low to high {skuSortField === 'inventory' && skuSortDirection === 'asc' && '✓'}
+                                  Low to high {skuSortField === 'inventory' && skuSortDirection === 'asc' && 'âœ“'}
                                 </div>
 
                                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '6px 0' }} />
@@ -7424,7 +7431,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                                       setActiveTableFilterDropdown(null);
                                     }}
                                   >
-                                    {opt.label} {skuInventoryStockFilter === opt.id && '✓'}
+                                    {opt.label} {skuInventoryStockFilter === opt.id && 'âœ“'}
                                   </div>
                                 ))}
                               </div>
@@ -7518,7 +7525,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <YAxis 
                           stroke="var(--text-secondary)" 
                           tick={{fill: 'var(--text-secondary)'}} 
-                          tickFormatter={(value) => insightType === 'revenue' ? `₹${value/1000}k` : value} 
+                          tickFormatter={(value) => insightType === 'revenue' ? `â‚¹${value/1000}k` : value} 
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Line type="monotone" dataKey="value" stroke="var(--accent-color)" strokeWidth={3} dot={{ r: 4, fill: 'var(--bg-color)', stroke: 'var(--accent-color)', strokeWidth: 2 }} activeDot={{ r: 8 }} />
@@ -7540,7 +7547,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                         <YAxis 
                           stroke="var(--text-secondary)" 
                           tick={{fill: 'var(--text-secondary)'}} 
-                          tickFormatter={(value) => `₹${value}`} 
+                          tickFormatter={(value) => `â‚¹${value}`} 
                         />
                         <Tooltip content={<CustomTooltip />} cursor={false} />
                         <Line type="monotone" dataKey="asp" stroke="#10b981" strokeWidth={3} dot={{ r: 4, fill: 'var(--bg-color)', stroke: '#10b981', strokeWidth: 2 }} activeDot={{ r: 8 }} />
@@ -7798,21 +7805,21 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     {reportType === 'inventory' ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 1: Inventory Levels</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>All active SKUs in stock sorted from highest to lowest stock counts.</span>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Sheet 2: Bestselling Analysis</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>Bestselling items for the selected 2-month span, showing units sold, revenue, and matching inventory levels.</span>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>âš¡</div>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Sheet 3: Alarming Stock Replenishment</strong>
@@ -7827,7 +7834,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     ) : reportType === 'business' ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Weekly Sales (Qty & Value)</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -7836,7 +7843,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Weekly Returns (Qty)</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -7845,7 +7852,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>âš¡</div>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Total Monthly Summary Row</strong>
@@ -7860,7 +7867,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Transaction Level Sales Rows</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -7869,7 +7876,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</div>
+                          <div style={{ color: '#00f2c4', fontWeight: 'bold', fontSize: '1.1rem' }}>âœ“</div>
                           <div>
                             <strong style={{ color: 'var(--text-primary)', display: 'block', fontSize: '0.95rem' }}>Custom Date Range (Max 3 Months)</strong>
                             <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -7878,7 +7885,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '0.75rem' }}>
-                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>⚡</div>
+                          <div style={{ color: '#ba54f5', fontWeight: 'bold', fontSize: '1.1rem' }}>âš¡</div>
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                               <strong style={{ color: 'var(--text-primary)', fontSize: '0.95rem' }}>Instant Browser Download</strong>
@@ -8170,7 +8177,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
           fontSize: '0.85rem'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span>Developed with ❤️ by</span>
+            <span>Developed with â¤ï¸ by</span>
             <span style={{ 
               fontWeight: 700, 
               color: '#ffffff',
@@ -8181,7 +8188,7 @@ const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, per
             }}>MANAN</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <span>© 2026 Manan. All rights reserved.</span>
+            <span>Â© 2026 Manan. All rights reserved.</span>
             <span style={{ opacity: 0.3 }}>|</span>
             <span style={{ 
               color: 'var(--accent-color)', 
