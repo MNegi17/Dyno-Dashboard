@@ -485,8 +485,79 @@ def archive_duplicate_sync_files(file_name, duplicate_files, admin_token):
             print(f"[Sync Archive] Preserved redundant copy {file_id} of {file_name}")
 
 
+def sync_report_identity(name):
+    match = re.fullmatch(r"\[(DAILY|REALTIME)_SYNC\]\s+(\d{1,2}) ([A-Za-z]{3}) (\d{4})", name or "")
+    if not match:
+        raise ValueError("Invalid sync report date")
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    month = [m.lower() for m in months].index(match[3].lower()) + 1
+    date = datetime(int(match[4]), month, int(match[2]))
+    label = f"{date.day:02d} {months[month - 1]} {date.year}"
+    names = list(dict.fromkeys(f"[{kind}_SYNC] {day} {months[month - 1]} {date.year}"
+                              for kind in ("DAILY", "REALTIME") for day in (f"{date.day:02d}", str(date.day))))
+    return f"00000000-0000-5000-8000-0000{date:%Y%m%d}", names
+
+
+def unique_sales_items(rows):
+    seen = set()
+    result = []
+    for row in rows:
+        key = (row.get("orderCode"), row.get("orderItemCode"))
+        if all(key):
+            if key in seen:
+                continue
+            seen.add(key)
+        result.append(row)
+    return result
+
+
+def report_request(admin_token, method="GET", query="", payload=None, prefer=None):
+    headers = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"}
+    if prefer:
+        headers["Prefer"] = prefer
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/uploaded_files?{query}",
+                                 data=json.dumps(payload).encode('utf-8') if payload is not None else None,
+                                 headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=60) as response:
+        body = response.read()
+        return json.loads(body) if body else None
+
+
+def save_sync_report(entry, admin_token, snapshot_started_at):
+    canonical_id, names = sync_report_identity(entry["name"])
+    rows = unique_sales_items(entry["data"])
+    if not rows:
+        raise ValueError("Refusing to replace saved sales with an empty snapshot")
+    payload = {**entry, "id": canonical_id, "data": rows, "record_count": len(rows), "upload_date": snapshot_started_at}
+    name_filter = urllib.parse.urlencode({"name": 'in.(' + ','.join('"' + n + '"' for n in names) + ')'})
+    existing = report_request(admin_token, query=name_filter + "&select=*") or []
+    rank = lambda f: (f['name'].startswith('[DAILY_SYNC]'), datetime.fromisoformat(f['upload_date'].replace('Z', '+00:00')).timestamp(), f['id'])
+    seed = max(existing, key=rank) if existing else payload
+    report_request(admin_token, "POST", "on_conflict=id", {**seed, "id": canonical_id}, "resolution=ignore-duplicates")
+    # Preserve finalized legacy data even if a canonical live copy already exists.
+    if seed['name'].startswith('[DAILY_SYNC]'):
+        report_request(admin_token, "PATCH", urllib.parse.urlencode({"id": f"eq.{canonical_id}", "name": "like.[REALTIME_SYNC]%"}), {**seed, "id": canonical_id})
+    filters = {"id": f"eq.{canonical_id}"}
+    if entry['name'].startswith('[DAILY_SYNC]'):
+        filters['or'] = f"(name.like.[REALTIME_SYNC]%,upload_date.lte.{snapshot_started_at})"
+    else:
+        filters.update({"name": "like.[REALTIME_SYNC]%", "upload_date": f"lte.{snapshot_started_at}"})
+    report_request(admin_token, "PATCH", urllib.parse.urlencode(filters), payload)
+    duplicates = report_request(admin_token, query=name_filter + f"&id=neq.{canonical_id}&select=id,name,upload_date") or []
+    canonical = report_request(admin_token, query=f"id=eq.{canonical_id}&select=name,upload_date")[0]
+    for duplicate in duplicates:
+        final = duplicate['name'].startswith('[DAILY_SYNC]')
+        canonical_final = canonical['name'].startswith('[DAILY_SYNC]')
+        if (final and not canonical_final) or (final == canonical_final and datetime.fromisoformat(duplicate['upload_date'].replace('Z', '+00:00')) > datetime.fromisoformat(canonical['upload_date'].replace('Z', '+00:00'))):
+            continue
+        report_request(admin_token, "PATCH", urllib.parse.urlencode({"id": 'eq.' + duplicate['id'], "upload_date": 'eq.' + duplicate['upload_date']}),
+                       {"name": f"[CONFIG] duplicate archive {duplicate['name']} {duplicate['id']}"})
+    return canonical_id
+
+
 def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, days_ago=1, now=None):
     reconciled_any = False
+    snapshot_started_at = datetime.now(timezone.utc).isoformat()
 
     deleted_dates = get_deleted_sync_dates(admin_token)
 
@@ -531,73 +602,27 @@ def audit_and_reconcile_yesterday(admin_token, threshold_diff=0, force=False, da
             print(f"[Audit Engine] No orders on Uniware for {file_name}. Skipping.")
             continue
 
-        # 5. Check what is currently in Supabase for [REALTIME_SYNC] <date>
-        existing_realtime = [f for f in all_files if f.get("name") == file_name]
-        stored_unique_orders = 0
-        stored_record_count = existing_realtime[0].get("record_count", 0) if existing_realtime else 0
+        canonical_id, _ = sync_report_identity(file_name)
+        saved = next((f for f in all_files if f['id'] == canonical_id and f['name'] == file_name), None)
+        if saved and not force:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(saved['upload_date'].replace('Z', '+00:00'))
+            saved_rows = report_request(admin_token, query=f"id=eq.{canonical_id}&select=data")[0]['data']
+            saved_orders = {row.get('orderCode') for row in saved_rows if row.get('orderCode')}
+            if age < timedelta(hours=6) and len(saved_orders) == uniware_total_orders:
+                # Still consolidate late legacy writers without pretending the snapshot is fresh.
+                save_sync_report({**saved, 'data': saved_rows}, admin_token, saved['upload_date'])
+                continue
 
-        if existing_realtime:
-            file_id = existing_realtime[0]["id"]
-            data_req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}&select=data",
-                headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
-            )
-            try:
-                with urllib.request.urlopen(data_req, timeout=35) as resp:
-                    file_rows = json.loads(resp.read().decode('utf-8'))
-                    if file_rows and len(file_rows) > 0 and "data" in file_rows[0]:
-                        rows_list = file_rows[0]["data"] or []
-                        stored_unique_orders = len(set(r.get("orderCode") for r in rows_list if r.get("orderCode")))
-                        stored_record_count = len(rows_list)
-            except Exception as e:
-                print(f"[Audit Engine] Error fetching file data: {e}")
-
-        diff = abs(uniware_total_orders - stored_unique_orders)
-        print(f"[Audit Engine] Comparison for {file_name}: Uniware Orders = {uniware_total_orders}, Stored Orders = {stored_unique_orders} (Stored Units = {stored_record_count}), Discrepancy = {diff} orders")
-
-        # 6. Repair any discrepancy (or force / empty) using the full IST day
-        if diff > threshold_diff or force or stored_record_count == 0 or len(existing_realtime) > 1:
-            print(f"[Audit Engine] Refreshing full day: discrepancy={diff}, force={force}, files={len(existing_realtime)}")
-            order_codes = search_all_uniware_orders(from_date, to_date)
-            if not order_codes:
-                raise RuntimeError("Search returned no orders despite a positive Uniware count")
-            if order_codes:
-                orders = fetch_orders_concurrently(order_codes, max_workers=10)
-                if len(orders) < uniware_total_orders:
-                    raise RuntimeError("Incomplete historical fetch; preserving stored data")
-                rows = transform_all_orders(orders)
-                new_file_entry = {
-                    "name": file_name,
-                    "upload_date": datetime.now(timezone.utc).isoformat(),
-                    "record_count": len(rows),
-                    "data": rows
-                }
-                if existing_realtime:
-                    file_id = existing_realtime[0]["id"]
-                    update_req = urllib.request.Request(
-                        f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
-                        data=json.dumps(new_file_entry).encode('utf-8'),
-                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                        method="PATCH"
-                    )
-                    with urllib.request.urlopen(update_req, timeout=45) as resp:
-                        print(f"[Audit Engine] Successfully reconciled {file_name} with {len(rows)} units across {len(orders)} orders in Supabase!")
-                        reconciled_any = True
-                    
-                    archive_duplicate_sync_files(file_name, existing_realtime[1:], admin_token)
-
-                else:
-                    insert_req = urllib.request.Request(
-                        f"{SUPABASE_URL}/rest/v1/uploaded_files",
-                        data=json.dumps([new_file_entry]).encode('utf-8'),
-                        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}", "Content-Type": "application/json"},
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(insert_req, timeout=45) as resp:
-                        print(f"[Audit Engine] Successfully created reconciled {file_name} with {len(rows)} units in Supabase!")
-                        reconciled_any = True
-        else:
-            print(f"[Audit Engine] Difference ({diff}) <= {threshold_diff}. Data is accurate, no fetch needed.")
+        # Counts alone cannot detect changed items, cancellations, or prices.
+        order_codes = search_all_uniware_orders(from_date, to_date)
+        if not order_codes:
+            raise RuntimeError("Search returned no orders despite a positive Uniware count")
+        orders = fetch_orders_concurrently(order_codes, max_workers=10)
+        if len(orders) < uniware_total_orders:
+            raise RuntimeError("Incomplete historical fetch; preserving stored data")
+        rows = transform_all_orders(orders)
+        save_sync_report({"name": file_name, "data": rows}, admin_token, snapshot_started_at)
+        reconciled_any = True
 
     return reconciled_any
 
@@ -626,52 +651,7 @@ def _execute_today_sync():
     rows = transform_all_orders(orders)
     print(f"[Python Sync] Generated {len(rows)} normalized rows.")
 
-    # Save to Supabase
-    new_file_entry = {
-        "name": file_name,
-        "upload_date": datetime.now(timezone.utc).isoformat(),
-        "record_count": len(rows),
-        "data": rows
-    }
-
-    # Check if exists
-    get_req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/uploaded_files?name=eq.{urllib.parse.quote(file_name)}&select=id",
-        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {admin_token}"}
-    )
-    with urllib.request.urlopen(get_req, timeout=30) as resp:
-        existing = json.loads(resp.read().decode('utf-8'))
-
-    if existing:
-        file_id = existing[0]["id"]
-        update_req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/uploaded_files?id=eq.{file_id}",
-            data=json.dumps(new_file_entry).encode('utf-8'),
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {admin_token}",
-                "Content-Type": "application/json"
-            },
-            method="PATCH"
-        )
-        with urllib.request.urlopen(update_req, timeout=30) as resp:
-            print(f"[Python Sync] Successfully updated '{file_name}' ({len(rows)} rows) in Supabase!")
-
-        archive_duplicate_sync_files(file_name, existing[1:], admin_token)
-
-    else:
-        insert_req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/uploaded_files",
-            data=json.dumps([new_file_entry]).encode('utf-8'),
-            headers={
-                "apikey": SUPABASE_KEY,
-                "Authorization": f"Bearer {admin_token}",
-                "Content-Type": "application/json"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(insert_req, timeout=30) as resp:
-            print(f"[Python Sync] Successfully inserted '{file_name}' ({len(rows)} rows) in Supabase!")
+    save_sync_report({"name": file_name, "data": rows}, admin_token, timestamp)
 
     return {"success": True, "orders": len(orders), "rows": len(rows)}
 

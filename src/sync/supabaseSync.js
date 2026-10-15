@@ -1,11 +1,11 @@
+import { saveSyncReport, syncReportIdentity } from './reportIntegrity.js';
 import { doesManualFileCoverDate } from './dateCoverage.js';
 export { doesManualFileCoverDate } from './dateCoverage.js';
 import { supabase } from '../supabaseClient.js';
 import { searchSaleOrders, fetchSaleOrdersWithConcurrency } from '../uniware/ordersClient.js';
 import { transformRealtimeOrders } from '../sales/realtimeTransform.js';
 
-export function getTodayStartIST() {
-  const now = new Date();
+export function getTodayStartIST(now = new Date()) {
   const istOffsetMs = 5.5 * 60 * 60 * 1000;
   const istNow = new Date(now.getTime() + istOffsetMs);
 
@@ -18,8 +18,7 @@ export function getTodayStartIST() {
   return new Date(istStartMs).toISOString();
 }
 
-export function getTodayRealtimeFileName() {
-  const now = new Date();
+export function getTodayRealtimeFileName(now = new Date()) {
   const istOffsetMs = 5.5 * 60 * 60 * 1000;
   const istNow = new Date(now.getTime() + istOffsetMs);
   const day = istNow.getUTCDate().toString().padStart(2, '0');
@@ -121,14 +120,6 @@ export async function markSyncDateAsDeleted(dateStr) {
 /**
  * Execute real-time Uniware ingestion and persist to Supabase
  */
-async function archiveDuplicateSyncFiles(fileName, files) {
-  for (const file of files) {
-    await supabase.from('uploaded_files')
-      .update({ name: `[CONFIG] duplicate archive ${fileName} ${file.id}` })
-      .eq('id', file.id).throwOnError();
-  }
-}
-
 let _syncInProgressPromise = null;
 let _reconcileInProgressPromise = null;
 
@@ -160,8 +151,9 @@ async function _executeSyncRealtimeSales(options = {}) {
     throw new Error(`Sync cooldown active. Please wait ${remaining}s before syncing again.`);
   }
 
-  const fromDate = getTodayStartIST();
-  const fileName = getTodayRealtimeFileName();
+  const snapshotStartedAt = new Date().toISOString();
+  const fromDate = getTodayStartIST(new Date(snapshotStartedAt));
+  const fileName = getTodayRealtimeFileName(new Date(snapshotStartedAt));
   const now = Date.now();
   const toDate = new Date(Math.max(now - 60000, Date.parse(fromDate))).toISOString(); // 1-minute buffer
 
@@ -188,7 +180,7 @@ async function _executeSyncRealtimeSales(options = {}) {
   if (fetchResult.failures?.length || orders.length !== orderCodes.length) throw new Error("Incomplete order fetch; preserving stored data");
 
   // 3. Transform to Dyno Normalized Sales Rows with live catalog enrichment & dynamic SP
-  const normalizedRows = await transformRealtimeOrders(orders);
+  let normalizedRows = await transformRealtimeOrders(orders);
   console.log(`[RealtimeSync] Transformed into ${normalizedRows.length} sales rows`);
 
   // 4. Persist to Supabase uploaded_files table under [REALTIME_SYNC]
@@ -199,31 +191,8 @@ async function _executeSyncRealtimeSales(options = {}) {
     data: normalizedRows
   };
 
-  // Upsert or replace existing [REALTIME_SYNC] entry in uploaded_files (strictly 1 record per name)
-  const { data: existingFiles, error: existingError } = await supabase
-    .from('uploaded_files')
-    .select('id, upload_date')
-    .eq('name', fileName)
-    .order('upload_date', { ascending: false });
-
-  if (existingError) throw existingError;
-  if (existingFiles && existingFiles.length > 0) {
-    const primaryId = existingFiles[0].id;
-    await supabase
-      .from('uploaded_files')
-      .update({
-        upload_date: newFileEntry.upload_date,
-        record_count: newFileEntry.record_count,
-        data: newFileEntry.data
-      })
-      .eq('id', primaryId).throwOnError();
-
-    await archiveDuplicateSyncFiles(fileName, existingFiles.slice(1));
-  } else {
-    await supabase
-      .from('uploaded_files')
-      .insert([newFileEntry]).throwOnError();
-  }
+  const savedReport = await saveSyncReport(supabase, newFileEntry, snapshotStartedAt);
+  normalizedRows = savedReport.data;
 
   // 5. Also upsert into dedicated realtime_sales table if table exists
   try {
@@ -260,7 +229,7 @@ async function _executeSyncRealtimeSales(options = {}) {
     console.warn('[RealtimeSync] realtime_sales table write skipped:', tableErr.message);
   }
 
-  const syncTimestamp = new Date();
+  const syncTimestamp = new Date(savedReport.upload_date);
   localStorage.setItem('dyno_last_sync_time', syncTimestamp.toISOString());
 
   return {
@@ -334,6 +303,7 @@ async function _executeReconcileYesterday(options = {}) {
 
   for (const daysAgo of daysToCheck) {
     try {
+      const snapshotStartedAt = new Date().toISOString();
       const { fromDate, toDate, fileName, dateStr, day, month, year } = getPastDayWindowIST(daysAgo);
       console.log(`[Client Reconcile] Auditing ${fileName} (${fromDate} to ${toDate})...`);
 
@@ -350,8 +320,7 @@ async function _executeReconcileYesterday(options = {}) {
       const { data: allFiles, error: fetchErr } = await supabase
         .from('uploaded_files')
         .select('id, name, record_count, upload_date')
-        .order('upload_date', { ascending: false })
-        .limit(100);
+        .order('upload_date', { ascending: false });
 
       if (fetchErr || !allFiles) {
         console.warn('[Client Reconcile] Could not query uploaded_files:', fetchErr?.message);
@@ -395,7 +364,9 @@ async function _executeReconcileYesterday(options = {}) {
       const diff = Math.abs(uniwareCount - storedUniqueOrders);
       console.log(`[Client Reconcile] Comparison for ${fileName}: Uniware = ${uniwareCount}, Stored = ${storedUniqueOrders} (Units: ${storedRecordCount}), Diff = ${diff}`);
 
-      if (diff > threshold || force || storedRecordCount === 0) {
+      const canonicalId = syncReportIdentity(fileName).id;
+      if (existingFile?.id === canonicalId && diff === 0 && !force && Date.now() - Date.parse(existingFile.upload_date) < 6 * 60 * 60 * 1000) continue;
+      if (uniwareCount > 0) {
         console.log(`[Client Reconcile] Discrepancy (${diff} > ${threshold}). Ingesting full 24-hour dataset from Uniware for ${fileName}...`);
         const fetchResult = await fetchSaleOrdersWithConcurrency(orderCodes, 6);
         const orders = fetchResult.orders || [];
@@ -409,29 +380,7 @@ async function _executeReconcileYesterday(options = {}) {
           data: normalizedRows
         };
 
-        // Direct fresh query for existing file records to prevent any race condition
-        const { data: currentFiles, error: currentError } = await supabase
-          .from('uploaded_files')
-          .select('id, upload_date')
-          .eq('name', fileName)
-          .order('upload_date', { ascending: false });
-
-        if (currentError) throw currentError;
-        if (currentFiles && currentFiles.length > 0) {
-          const primaryId = currentFiles[0].id;
-          await supabase
-            .from('uploaded_files')
-            .update(newFileEntry)
-            .eq('id', primaryId).throwOnError();
-
-          await archiveDuplicateSyncFiles(fileName, currentFiles.slice(1));
-          console.log(`[Client Reconcile] Successfully updated ${fileName} with ${normalizedRows.length} units!`);
-        } else {
-          await supabase
-            .from('uploaded_files')
-            .insert([newFileEntry]).throwOnError();
-          console.log(`[Client Reconcile] Successfully created ${fileName} with ${normalizedRows.length} units!`);
-        }
+        await saveSyncReport(supabase, newFileEntry, snapshotStartedAt);
 
         results.push({ fileName, reconciled: true, units: normalizedRows.length, orders: orders.length, data: normalizedRows });
       } else {

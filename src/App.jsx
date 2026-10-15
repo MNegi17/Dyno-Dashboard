@@ -1,3 +1,4 @@
+import { selectSalesReports, uniqueSalesItems } from './sync/reportIntegrity.js';
 import { FinanceSection } from './finance/FinanceSection';
 // Dyno Dashboard v1.1 - with MN branding
 import { useState, useMemo, useEffect, useRef, memo } from 'react';
@@ -604,7 +605,7 @@ Dyno Dashboard Auto-Mail`
           await syncRealtimeSalesToSupabase({ force: true });
         }
         // Background audit for yesterday if needed
-        reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
+        reconcileYesterdayClientSide({ threshold: 0 }).catch(() => {});
         setHasPendingUpdate(true);
       } catch (e) {
         console.warn('Background auto-sync:', e.message);
@@ -627,17 +628,6 @@ Dyno Dashboard Auto-Mail`
         .select('id, name, upload_date, record_count, data')
         .eq('name', todayFileName);
 
-      // Fallback if not found by exact name: grab newest [REALTIME_SYNC]
-      if ((!realtimeFiles || realtimeFiles.length === 0) && !rtError) {
-        const fallbackRes = await supabase
-          .from('uploaded_files')
-          .select('id, name, upload_date, record_count, data')
-          .like('name', '[REALTIME_SYNC]%')
-          .order('upload_date', { ascending: false })
-          .limit(1);
-        realtimeFiles = fallbackRes.data;
-      }
-
       if (!rtError && realtimeFiles && realtimeFiles.length > 0) {
         const item = realtimeFiles[0];
         const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -646,6 +636,8 @@ Dyno Dashboard Auto-Mail`
           const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
           const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
           return {
+            orderCode: row.orderCode,
+            orderItemCode: row.orderItemCode,
             parsedDate: d,
             monthName: mName,
             formattedDate: fDate,
@@ -695,6 +687,8 @@ Dyno Dashboard Auto-Mail`
                 const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
                 const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
                 return {
+                  orderCode: row.orderCode,
+                  orderItemCode: row.orderItemCode,
                   parsedDate: d,
                   monthName: mName,
                   formattedDate: fDate,
@@ -725,37 +719,10 @@ Dyno Dashboard Auto-Mail`
 
       // If backend was not available (404/network error/timeout), run direct client sync fallback
       if (!syncedSuccessfully) {
-        const clientSyncRes = await syncRealtimeSalesToSupabase({ force: true });
-        if (clientSyncRes && clientSyncRes.rows) {
-          const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-          const parsedRows = clientSyncRes.rows.map(row => {
-            const d = row.parsedDate ? new Date(row.parsedDate) : new Date();
-            const mName = (row.monthName && row.monthName !== 'Unknown') ? row.monthName : monthNames[d.getMonth()];
-            const fDate = (row.formattedDate && row.formattedDate !== 'Unknown') ? row.formattedDate : `${d.getDate().toString().padStart(2, '0')} ${monthNames[d.getMonth()]}`;
-            return {
-              parsedDate: d,
-              monthName: mName,
-              formattedDate: fDate,
-              fy: row.fy || '2026',
-              priceVal: parseFloat(row.priceVal ?? row.new_sp ?? 0) || 0,
-              division: row.division || 'Unknown',
-              channel_name: normalizeChannelName(row.channel_name),
-              categories: row.categories || 'Unknown',
-              item_color: row.item_color || 'Unknown',
-              item_type_size: row.item_type_size || 'Unknown'
-            };
-          });
-
-          setUploadedFiles(prev => {
-            const exists = prev.some(f => f.name === todayFileName);
-            if (exists) {
-              return prev.map(f => f.name === todayFileName ? { ...f, uploadDate: clientSyncRes.timestamp, recordCount: clientSyncRes.rowsCount, data: parsedRows } : f);
-            } else {
-              return [{ id: `rt-${Date.now()}`, name: todayFileName, uploadDate: clientSyncRes.timestamp, recordCount: clientSyncRes.rowsCount, data: parsedRows }, ...prev];
-            }
-          });
-        }
+        await syncRealtimeSalesToSupabase({ force: true });
       }
+      // Reload the persisted winner, including any midnight finalization or concurrent sync.
+      await fetchData();
 
       // Immediately update Last Updated to right now
       const finalNow = new Date();
@@ -1051,7 +1018,7 @@ Dyno Dashboard Auto-Mail`
     if (!error && data) {
       // 1. Extract config records (like deleted_sync_dates) and user files
       const deletedDatesSet = await getDeletedSyncDates();
-      const userFilesData = data.filter(f => !(f.name || '').startsWith('[CONFIG]'));
+      const userFilesData = selectSalesReports(data);
 
       const formatted = userFilesData.map(f => ({
         id: f.id,
@@ -1104,8 +1071,8 @@ Dyno Dashboard Auto-Mail`
 
       setUploadedFiles(deduplicated);
 
-      // Set lastSyncTime from today's [REALTIME_SYNC] file or latest
-      const realtimeFile = formatted.find(f => f.name === todayFileName) || formatted.find(f => (f.name || '').startsWith('[REALTIME_SYNC]'));
+      // Only today's live report can establish today's last-sync time.
+      const realtimeFile = formatted.find(f => f.name === todayFileName);
       if (realtimeFile && realtimeFile.uploadDate) {
         setLastSyncTime(realtimeFile.uploadDate);
         if (typeof localStorage !== 'undefined') {
@@ -1135,7 +1102,7 @@ Dyno Dashboard Auto-Mail`
               await syncRealtimeSalesToSupabase({ force: true });
             }
             // Audit yesterday client-side whenever the app is opened
-            reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
+            reconcileYesterdayClientSide({ threshold: 0 }).catch(() => {});
             setHasPendingUpdate(true);
           } catch (e) {
             console.warn('Initial mount auto-sync:', e.message);
@@ -1177,7 +1144,7 @@ Dyno Dashboard Auto-Mail`
           console.log(`[Auto-Refresh] Tab focused after ${elapsedMinutes.toFixed(1)} mins inactivity. Refreshing data silently...`);
           try {
             await fetchData();
-            reconcileYesterdayClientSide({ threshold: 10 }).catch(() => {});
+            reconcileYesterdayClientSide({ threshold: 0 }).catch(() => {});
           } catch (e) {
             console.warn('[Auto-Refresh] Failed to refresh:', e.message);
           }
@@ -1251,6 +1218,8 @@ Dyno Dashboard Auto-Mail`
                 const totalVal = parseFloat(row.total ?? row.price ?? 0) || 0;
                 const priceVal = parseFloat(row.price ?? (totalVal > 0 && qtyVal > 0 ? totalVal / qtyVal : 0)) || 0;
                 return {
+                  orderCode: row.orderCode,
+                  orderItemCode: row.orderItemCode,
                   parsedDate: dateObj,
                   monthName: row.monthName || 'Unknown',
                   formattedDate: row.formattedDate || 'Unknown',
@@ -1343,6 +1312,8 @@ Dyno Dashboard Auto-Mail`
               const parsedPriceVal = parseFloat(priceVal) || 0;
 
               return {
+                orderCode: row.orderCode,
+                orderItemCode: row.orderItemCode,
                 parsedDate: dateObj,
                 monthName: monthName || 'Unknown',
                 formattedDate: formattedDate || 'Unknown',
@@ -1697,7 +1668,7 @@ Dyno Dashboard Auto-Mail`
   };
 
   const data = useMemo(() => {
-    return uploadedFiles
+    return uniqueSalesItems(selectSalesReports(uploadedFiles)
       .filter(file => 
         !(file.name || '').startsWith('[RETURN]') && 
         !(file.name || '').startsWith('[INVENTORY]') &&
@@ -1705,7 +1676,7 @@ Dyno Dashboard Auto-Mail`
         !(file.name || '').startsWith('[CONFIG]')
       )
       .flatMap(file => file.data || [])
-      .filter(row => row && row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== '');
+      .filter(row => row && row.monthName && row.monthName !== 'Unknown' && row.monthName.trim() !== ''));
   }, [uploadedFiles]);
 
   const returnData = useMemo(() => {

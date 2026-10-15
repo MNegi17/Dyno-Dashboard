@@ -30,22 +30,46 @@ class SyncTests(unittest.TestCase):
     @patch.object(sync, 'get_uniware_order_count', return_value=1)
     @patch.object(sync, 'search_all_uniware_orders', return_value=['order-1'])
     @patch.object(sync, 'fetch_orders_concurrently', return_value=[{'code': 'order-1'}])
-    @patch.object(sync, 'transform_all_orders', return_value=[{'orderCode': 'order-1'}])
+    @patch.object(sync, 'transform_all_orders', return_value=[{'orderCode': 'order-1', 'orderItemCode': 'item-1'}])
+    @patch.object(sync, 'save_sync_report')
     @patch.object(sync.urllib.request, 'urlopen')
-    def test_duplicate_archive_preserved_even_when_count_matches(self, urlopen, transform, fetch, search, count, deleted):
-        files = [{'id': str(i), 'name': '[DAILY_SYNC] 04 Oct 2026', 'record_count': 1} for i in (1, 2)]
-        bodies = [files, [{'data': [{'orderCode': 'order-1'}]}], {}, {}]
-        responses = []
-        for body in bodies:
-            response = MagicMock()
-            response.__enter__.return_value.read.return_value = json.dumps(body).encode()
-            responses.append(response)
-        urlopen.side_effect = responses
+    def test_finalization_uses_shared_date_record(self, urlopen, save, transform, fetch, search, count, deleted):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'[]'
+        urlopen.return_value = response
         self.assertTrue(sync.audit_and_reconcile_yesterday('token', now=datetime(2026, 10, 5, 12, tzinfo=timezone.utc)))
-        self.assertEqual([c.args[0].get_method() for c in urlopen.call_args_list], ['GET', 'GET', 'PATCH', 'PATCH'])
-        archive = urlopen.call_args_list[-1].args[0]
-        self.assertIn('id=eq.2', archive.full_url)
-        self.assertEqual(json.loads(archive.data), {'name': '[CONFIG] duplicate archive [DAILY_SYNC] 04 Oct 2026 2'})
+        self.assertEqual(save.call_args.args[0]['name'], '[DAILY_SYNC] 04 Oct 2026')
+        self.assertEqual(save.call_args.args[0]['data'], transform.return_value)
+
+    def test_shared_date_identity(self):
+        live, _ = sync.sync_report_identity('[REALTIME_SYNC] 14 Oct 2026')
+        daily, _ = sync.sync_report_identity('[DAILY_SYNC] 14 Oct 2026')
+        self.assertEqual(live, daily)
+        self.assertEqual(live, '00000000-0000-5000-8000-000020261014')
+        with self.assertRaises(ValueError):
+            sync.sync_report_identity('[DAILY_SYNC] 31 Feb 2026')
+
+    def test_dedup_preserves_distinct_items_and_unknown_ids(self):
+        rows = [{'orderCode': 'a', 'orderItemCode': '1'}, {'orderCode': 'a', 'orderItemCode': '1'},
+                {'orderCode': 'a', 'orderItemCode': '2'}, {}, {}]
+        self.assertEqual(len(sync.unique_sales_items(rows)), 4)
+
+    @patch.object(sync, 'report_request')
+    def test_empty_snapshot_never_touches_database(self, request):
+        with self.assertRaisesRegex(ValueError, 'empty snapshot'):
+            sync.save_sync_report({'name': '[DAILY_SYNC] 14 Oct 2026', 'data': []}, 'token', '2026-10-15T01:00:00Z')
+        request.assert_not_called()
+
+    @patch.object(sync, 'report_request')
+    def test_writer_uses_atomic_primary_key_and_finalization_guard(self, request):
+        request.side_effect = [[], None, None, [], [{'name': '[REALTIME_SYNC] 14 Oct 2026', 'upload_date': '2026-10-14T10:00:00Z'}]]
+        sync.save_sync_report({'name': '[REALTIME_SYNC] 14 Oct 2026', 'data': [{'orderCode': 'a'}]}, 'token', '2026-10-14T10:00:00Z')
+        self.assertEqual(request.call_args_list[1].args[2], 'on_conflict=id')
+        self.assertEqual(request.call_args_list[1].args[4], 'resolution=ignore-duplicates')
+        from urllib.parse import parse_qs
+        filters = parse_qs(request.call_args_list[2].args[2])
+        self.assertEqual(filters['name'], ['like.[REALTIME_SYNC]%'])
+        self.assertEqual(filters['upload_date'], ['lte.2026-10-14T10:00:00Z'])
 
     def test_ist_midnight_and_year_rollover(self):
         now = datetime(2026, 10, 4, 18, 30, tzinfo=timezone.utc)

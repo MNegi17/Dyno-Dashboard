@@ -133,3 +133,14 @@ Verification: `python -m unittest discover -s tests -p "test_*.py"`, `node --tes
 Redundant sync copies are preserved under `[CONFIG] duplicate archive ...` names after a successful complete write. They are excluded from dashboard totals but retain their original data and IDs for recovery.
 
 Completed IST days are stored as `[DAILY_SYNC] DD Mon YYYY`; only today uses `[REALTIME_SYNC]`. This isolates historical snapshots from legacy clients that clean up old live files. A finalized snapshot takes precedence over any remaining live copy, so totals are not doubled. Existing manual files and explicit user deletions still take precedence.
+
+
+### Sales report integrity
+
+Automated sales reports use one deterministic UUID per IST sales date across the Python worker, browser fallback, and Node worker. Today's realtime snapshot is promoted to a finalized daily snapshot in the same record. Primary-key conflict handling prevents concurrent first inserts; conditional updates reject stale snapshots and late realtime writes to finalized days.
+
+Legacy copies are renamed as `[CONFIG] duplicate archive ...` only after a canonical record exists. Data is retained for recovery and excluded from totals. Dashboard selection independently prefers one synced report per date and deduplicates identified order items, retaining distinct same-SKU items and rows without item IDs. Failed or empty fetches cannot erase saved sales. Historical audits check order counts every cycle and refresh full details every six hours within the configured lookback, even when counts agree.
+
+Run `python repair_sync_reports.py` to audit, or add `--apply` to consolidate existing sync reports. Manual spreadsheets are not changed. All supported writers use the shared save path; external clients inserting random IDs bypass the date-key convention and must be upgraded. Dashboard selection still protects totals while legacy copies await consolidation.
+
+Verify with `node --test tests/*.test.js`, `python -m unittest discover -s tests -p "test_*.py"`, and `npm run build`. Backend `/api/health` reports `single-sales-date-v4` for this revision.

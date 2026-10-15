@@ -84,7 +84,7 @@ export async function searchSaleOrders({ fromDate, toDate, dateType = 'CREATED' 
     }
   }
 
-  const orderCodes = allElements.map(el => el.code);
+  const orderCodes = [...new Set(allElements.map(el => el.code).filter(Boolean))];
 
   return {
     orderCodes,

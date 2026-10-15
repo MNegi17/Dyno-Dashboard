@@ -1,3 +1,5 @@
+import process from 'node:process';
+import { saveSyncReport } from './src/sync/reportIntegrity.js';
 /**
  * Standalone 24/7 Real-Time Sync Worker for DynoDashboard
  * 
@@ -38,10 +40,11 @@ async function runWorkerSync() {
     return;
   }
 
+  const snapshotStartedAt = new Date().toISOString();
   // 2. Rolling window starting at 12:01 AM IST
-  const fromDate = getTodayStartIST();
-  const fileName = getTodayRealtimeFileName();
-  const toDate = new Date(Date.now() - 60000).toISOString();
+  const fromDate = getTodayStartIST(new Date(snapshotStartedAt));
+  const fileName = getTodayRealtimeFileName(new Date(snapshotStartedAt));
+  const toDate = new Date(Math.max(Date.now() - 60000, Date.parse(fromDate))).toISOString();
 
   console.log(`Ingesting orders from ${fromDate} to ${toDate} (Target: ${fileName})...`);
 
@@ -58,6 +61,7 @@ async function runWorkerSync() {
   // 4. Fetch full order details with concurrency
   const fetchResult = await fetchSaleOrdersWithConcurrency(orderCodes, 5);
   const orders = fetchResult.orders || [];
+  if (fetchResult.failures?.length || orders.length !== orderCodes.length) throw new Error("Incomplete fetch; preserving saved sales");
 
   // 5. Transform orders with dynamic pricing & item directory lookup
   const normalizedRows = await transformRealtimeOrders(orders);
@@ -71,33 +75,8 @@ async function runWorkerSync() {
     data: normalizedRows
   };
 
-  const { data: existing } = await supabase
-    .from('uploaded_files')
-    .select('id')
-    .eq('name', fileName);
+  await saveSyncReport(supabase, newFileEntry, snapshotStartedAt);
 
-  if (existing && existing.length > 0) {
-    const { error: updateError } = await supabase
-      .from('uploaded_files')
-      .update(newFileEntry)
-      .eq('id', existing[0].id);
-
-    if (updateError) {
-      console.error('Failed to update Supabase record:', updateError.message);
-    } else {
-      console.log(`Successfully updated '${fileName}' (${normalizedRows.length} rows) in Supabase!`);
-    }
-  } else {
-    const { error: insertError } = await supabase
-      .from('uploaded_files')
-      .insert([newFileEntry]);
-
-    if (insertError) {
-      console.error('Failed to insert Supabase record:', insertError.message);
-    } else {
-      console.log(`Successfully created '${fileName}' (${normalizedRows.length} rows) in Supabase!`);
-    }
-  }
 }
 
 // CLI Execution Mode
