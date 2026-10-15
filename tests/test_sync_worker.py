@@ -62,12 +62,12 @@ class SyncTests(unittest.TestCase):
 
     @patch.object(sync, 'report_request')
     def test_writer_uses_atomic_primary_key_and_finalization_guard(self, request):
-        request.side_effect = [[], None, None, [], [{'name': '[REALTIME_SYNC] 14 Oct 2026', 'upload_date': '2026-10-14T10:00:00Z'}]]
+        request.side_effect = [[], None, None, None, [], [{'name': '[REALTIME_SYNC] 14 Oct 2026', 'upload_date': '2026-10-14T10:00:00Z'}]]
         sync.save_sync_report({'name': '[REALTIME_SYNC] 14 Oct 2026', 'data': [{'orderCode': 'a'}]}, 'token', '2026-10-14T10:00:00Z')
         self.assertEqual(request.call_args_list[1].args[2], 'on_conflict=id')
         self.assertEqual(request.call_args_list[1].args[4], 'resolution=ignore-duplicates')
         from urllib.parse import parse_qs
-        filters = parse_qs(request.call_args_list[2].args[2])
+        filters = parse_qs(request.call_args_list[3].args[2])
         self.assertEqual(filters['name'], ['like.[REALTIME_SYNC]%'])
         self.assertEqual(filters['upload_date'], ['lte.2026-10-14T10:00:00Z'])
 

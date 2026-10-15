@@ -534,6 +534,8 @@ def save_sync_report(entry, admin_token, snapshot_started_at):
     rank = lambda f: (f['name'].startswith('[DAILY_SYNC]'), datetime.fromisoformat(f['upload_date'].replace('Z', '+00:00')).timestamp(), f['id'])
     seed = max(existing, key=rank) if existing else payload
     report_request(admin_token, "POST", "on_conflict=id", {**seed, "id": canonical_id}, "resolution=ignore-duplicates")
+    # Repair a reserved ID archived by an older writer during rollout.
+    report_request(admin_token, "PATCH", urllib.parse.urlencode({"id": f"eq.{canonical_id}", "name": "like.[CONFIG] duplicate archive%"}), {**seed, "id": canonical_id})
     # Preserve finalized legacy data even if a canonical live copy already exists.
     if seed['name'].startswith('[DAILY_SYNC]'):
         report_request(admin_token, "PATCH", urllib.parse.urlencode({"id": f"eq.{canonical_id}", "name": "like.[REALTIME_SYNC]%"}), {**seed, "id": canonical_id})

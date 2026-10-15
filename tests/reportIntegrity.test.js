@@ -72,3 +72,12 @@ test('item-level dedup preserves separate same-SKU units and rows without IDs', 
   const rows=[item('one'),item('one'),item('two'),{itemSku:'same-sku'},{itemSku:'same-sku'}];
   assert.equal(uniqueSalesItems(rows).length,4);
 });
+
+test('a reserved ID archived by a legacy writer is safely restored', async () => {
+  const id=syncReportIdentity(live).id;
+  const db=database([{id,name:'[CONFIG] duplicate archive old',data:[item('old')],upload_date:'2026-10-14T09:00:00Z'}, {id:'legacy',name:live,data:[item('new')],upload_date:'2026-10-14T10:00:00Z'}]);
+  await saveSyncReport(db,snapshot(live,[item('latest')]),'2026-10-14T11:00:00Z');
+  assert.equal(active(db).length,1);
+  assert.equal(active(db)[0].id,id);
+  assert.equal(active(db)[0].data[0].orderItemCode,'latest');
+});

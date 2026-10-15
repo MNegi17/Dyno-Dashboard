@@ -51,6 +51,8 @@ export async function saveSyncReport(client, entry, snapshotStartedAt) {
   const seed = selectSalesReports(existing || [])[0] || payload;
   // Primary-key conflict handling makes first creation safe across processes/tabs.
   await client.from('uploaded_files').upsert({ ...seed, id: identity.id }, { onConflict: 'id', ignoreDuplicates: true }).throwOnError();
+  // An older deployed writer may have archived this reserved ID during rollout.
+  await client.from('uploaded_files').update({ ...seed, id: identity.id }).eq('id', identity.id).like('name', '[CONFIG] duplicate archive%').throwOnError();
   if (syncReportIdentity(seed.name).finalized) {
     await client.from('uploaded_files').update({ ...seed, id: identity.id }).eq('id', identity.id).like('name', '[REALTIME_SYNC]%').throwOnError();
   }
