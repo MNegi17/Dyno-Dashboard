@@ -25,7 +25,7 @@ import './FinanceSection.css';
 
 const formatINR = (val) => {
   const num = Math.round(Number(val) || 0);
-  return '₹' + num.toLocaleString('en-IN');
+  return '\u20b9' + num.toLocaleString('en-IN');
 };
 
 const formatUnits = (val) => {
@@ -169,7 +169,7 @@ export const FinanceSection = ({
             <div className="card-title-group">
               <span className="card-label">Net Revenue</span>
               <span className="card-sub-info" style={{ color: '#00f2c4' }}>
-                Gross − Cancellations − Returns
+                Gross &#x2212; Cancellations &#x2212; Returns
               </span>
             </div>
           </div>
@@ -286,7 +286,7 @@ export const FinanceSection = ({
               Revenue Realization Bridge ({activeMonthLabel})
             </h3>
             <span style={{ fontSize: '0.8rem', color: '#c4b5fd' }}>
-              Gross → Net → Returns → Cancellation
+              Gross &#x2192; Net &#x2192; Returns &#x2192; Cancellation
             </span>
           </div>
 
@@ -302,7 +302,7 @@ export const FinanceSection = ({
                 <YAxis 
                   stroke="#a78bfa" 
                   tick={{ fill: '#c4b5fd', fontSize: 11 }}
-                  tickFormatter={(v) => '₹' + (v / 100000).toFixed(1) + 'L'}
+                  tickFormatter={(v) => '\u20b9' + (v / 100000).toFixed(1) + 'L'}
                 />
                 <Tooltip 
                   cursor={{ fill: 'rgba(186, 84, 245, 0.08)' }}
@@ -414,13 +414,13 @@ export const FinanceSection = ({
             <thead>
               <tr>
                 <th>Channel</th>
-                <th>Gross Sales (₹)</th>
+                <th>Gross Sales (&#x20B9;)</th>
                 <th>Gross Units</th>
-                <th>Net Revenue (₹)</th>
+                <th>Net Revenue (&#x20B9;)</th>
                 <th>Net Units</th>
-                <th>Returns (₹)</th>
+                <th>Returns (&#x20B9;)</th>
                 <th>Return Units</th>
-                <th>Cancellation (₹)</th>
+                <th>Cancellation (&#x20B9;)</th>
                 <th>Cancelled Units</th>
                 <th>Realization %</th>
               </tr>
@@ -445,11 +445,11 @@ export const FinanceSection = ({
                     </td>
                     <td style={{ fontWeight: 600, color: '#ffffff' }}>{formatUnits(ch.netUnits)}</td>
                     <td style={{ color: '#d6c8ff' }}>
-                      {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '₹0'}
+                      {ch.returnRevenue > 0 ? `- ${formatINR(ch.returnRevenue)}` : '\u20b90'}
                     </td>
                     <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.returnUnits)}</td>
                     <td style={{ color: '#d6c8ff' }}>
-                      {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '₹0'}
+                      {ch.cancelledRevenue > 0 ? `- ${formatINR(ch.cancelledRevenue)}` : '\u20b90'}
                     </td>
                     <td style={{ color: '#c4b5fd' }}>{formatUnits(ch.cancelledUnits)}</td>
                     <td>

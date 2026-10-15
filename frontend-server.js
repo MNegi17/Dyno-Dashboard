@@ -28,7 +28,20 @@ app.use('/api', createProxyMiddleware({
 }));
 
 // Serve Vite build output
-app.use(express.static(path.join(__dirname, 'dist')));
+app.use(express.static(path.join(__dirname, 'dist'), {
+  setHeaders(res, filePath) {
+    // Keep symbols intact when assets pass through hosting proxies.
+    const contentTypes = {
+      '.html': 'text/html',
+      '.js': 'text/javascript',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.svg': 'image/svg+xml'
+    };
+    const contentType = contentTypes[path.extname(filePath)];
+    if (contentType) res.setHeader('Content-Type', `${contentType}; charset=utf-8`);
+  }
+}));
 
 // SPA Fallback: All other routes serve index.html
 app.get('*', (req, res) => {
